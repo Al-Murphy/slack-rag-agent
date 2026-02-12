@@ -9,12 +9,14 @@ from typing import Any
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel, Field
 
 # Load .env before importing modules that read environment variables.
 load_dotenv()
 
 from agent.rag_agent import query_rag
 from database.vector_store import init_db
+from slack_listener.channel_crawler import ingest_channels
 from slack_listener.event_handler import handle_slack_event
 
 app = FastAPI(title="Slack RAG Agent MVP")
@@ -23,6 +25,14 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+class ChannelIngestRequest(BaseModel):
+    channel_ids: list[str] = Field(default_factory=list)
+    scan_all_accessible: bool = False
+    days_back: int = Field(default=30, ge=1, le=365)
+    per_channel_page_cap: int = Field(default=5, ge=1, le=50)
+    top_k_files_per_channel: int = Field(default=50, ge=1, le=500)
 
 
 @app.on_event("startup")
@@ -88,3 +98,16 @@ async def search(q: str, top_k: int = 5) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="top_k must be between 1 and 20")
 
     return await query_rag(q, top_k=top_k)
+
+
+@app.post("/slack/ingest/channels")
+async def ingest_from_channels(body: ChannelIngestRequest) -> dict[str, Any]:
+    result = await ingest_channels(
+        channel_ids=body.channel_ids,
+        scan_all_accessible=body.scan_all_accessible,
+        days_back=body.days_back,
+        per_channel_page_cap=body.per_channel_page_cap,
+        top_k_files_per_channel=body.top_k_files_per_channel,
+    )
+    logger.info("Channel crawler completed result_summary=%s", result.get("metrics"))
+    return result

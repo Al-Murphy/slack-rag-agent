@@ -2,6 +2,7 @@ import unittest
 
 from agent.controller import Plan, confidence_score, rerank_chunks
 from processing.chunking import is_low_information, split_text
+from slack_listener.channel_crawler import extract_pdf_file_ids, parse_channel_targets
 from processing.text_extractor import extract_text_from_html
 
 
@@ -39,6 +40,18 @@ class UnitTests(unittest.TestCase):
         self.assertGreaterEqual(ranked[0][1], ranked[1][1])
         conf = confidence_score(Plan("evidence", 2, 0.4), ranked)
         self.assertGreater(conf, 0.0)
+
+    def test_extract_pdf_file_ids(self) -> None:
+        messages = [
+            {"files": [{"id": "F1", "mimetype": "application/pdf"}]},
+            {"files": [{"id": "F2", "filetype": "pdf"}]},
+            {"files": [{"id": "F1", "mimetype": "application/pdf"}]},
+            {"files": [{"id": "F3", "mimetype": "image/png"}]},
+        ]
+        self.assertEqual(extract_pdf_file_ids(messages), ["F1", "F2"])
+
+    def test_parse_channel_targets(self) -> None:
+        self.assertEqual(parse_channel_targets(["C1", " C2 "]), ["C1", "C2"])
 
 
 if __name__ == "__main__":

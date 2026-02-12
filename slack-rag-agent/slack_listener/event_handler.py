@@ -13,18 +13,7 @@ from slack_listener.slack_client import fetch_file_info, slack_auth_headers
 logger = logging.getLogger(__name__)
 
 
-async def handle_slack_event(payload: dict[str, Any]) -> dict[str, Any]:
-    """
-    Handle Slack event payloads and process file_shared events.
-    """
-    event = payload.get("event", {})
-    if event.get("type") != "file_shared":
-        return {"processed": False, "reason": "unsupported_event"}
-
-    file_id = event.get("file_id") or event.get("file", {}).get("id")
-    if not file_id:
-        return {"processed": False, "reason": "missing_file_id"}
-
+async def process_slack_file_id(file_id: str, source_ref: str | None = None) -> dict[str, Any]:
     file_info = fetch_file_info(file_id)
     logger.info("Processing Slack file_shared event file_id=%s", file_id)
     download_url = file_info.get("url_private_download") or file_info.get("url_private")
@@ -62,7 +51,7 @@ async def handle_slack_event(payload: dict[str, Any]) -> dict[str, Any]:
         doc_id=doc_id,
         doc_hash=doc_hash,
         source="slack",
-        source_ref=file_info.get("permalink", file_id),
+        source_ref=source_ref or file_info.get("permalink", file_id),
     )
     logger.info("Completed Slack ingestion file_id=%s doc_id=%s chunks=%d", file_id, doc_id, inserted)
 
@@ -73,3 +62,18 @@ async def handle_slack_event(payload: dict[str, Any]) -> dict[str, Any]:
         "chunks_inserted": inserted,
         "duplicate": False,
     }
+
+
+async def handle_slack_event(payload: dict[str, Any]) -> dict[str, Any]:
+    """
+    Handle Slack event payloads and process file_shared events.
+    """
+    event = payload.get("event", {})
+    if event.get("type") != "file_shared":
+        return {"processed": False, "reason": "unsupported_event"}
+
+    file_id = event.get("file_id") or event.get("file", {}).get("id")
+    if not file_id:
+        return {"processed": False, "reason": "missing_file_id"}
+
+    return await process_slack_file_id(file_id=file_id)
