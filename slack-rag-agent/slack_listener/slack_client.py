@@ -2,12 +2,14 @@ import os
 
 from slack_sdk import WebClient
 
-slack = WebClient(token=os.environ.get("SLACK_BOT_TOKEN", ""))
+
+def _slack_client() -> WebClient:
+    return WebClient(token=os.environ.get("SLACK_BOT_TOKEN", ""))
 
 
 def fetch_file_info(file_id: str) -> dict:
     """Fetch metadata for a file stored in Slack."""
-    result = slack.files_info(file=file_id)
+    result = _slack_client().files_info(file=file_id)
     return result.get("file", {})
 
 

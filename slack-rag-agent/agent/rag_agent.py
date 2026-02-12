@@ -11,10 +11,9 @@ from agent.tools import build_context
 from database.vector_store import search_similar_chunks
 from processing.embeddings import get_embeddings
 
-client = AsyncOpenAI()
-
 
 async def generate_answer(query: str, relevant_chunks: list) -> str:
+    client = AsyncOpenAI()
     context_text = build_context(relevant_chunks)
     model = os.environ.get("OPENAI_MODEL_CHAT", "gpt-4o-mini")
 

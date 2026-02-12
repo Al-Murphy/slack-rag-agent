@@ -3,8 +3,6 @@ import os
 
 from openai import AsyncOpenAI
 
-client = AsyncOpenAI()
-
 _SCHEMA = {
     "name": "paper_structure",
     "strict": True,
@@ -29,6 +27,7 @@ _SCHEMA = {
 
 async def extract_structured_sections(text: str) -> dict:
     """Extract structured fields from raw research text."""
+    client = AsyncOpenAI()
     model = os.environ.get("OPENAI_MODEL_CHAT", "gpt-4o-mini")
 
     prompt = (
