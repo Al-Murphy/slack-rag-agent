@@ -2,7 +2,7 @@ import unittest
 
 from agent.controller import Plan, confidence_score, rerank_chunks
 from processing.chunking import is_low_information, split_text
-from slack_listener.channel_crawler import extract_pdf_file_ids, parse_channel_targets
+from slack_listener.channel_crawler import extract_paper_urls, extract_pdf_file_ids, parse_channel_targets
 from processing.text_extractor import extract_text_from_html
 
 
@@ -52,6 +52,15 @@ class UnitTests(unittest.TestCase):
 
     def test_parse_channel_targets(self) -> None:
         self.assertEqual(parse_channel_targets(["C1", " C2 "]), ["C1", "C2"])
+
+    def test_extract_paper_urls(self) -> None:
+        messages = [
+            {"text": "Check this https://arxiv.org/abs/1706.03762"},
+            {"text": "<https://doi.org/10.1038/s41586-020-2649-2|paper>"},
+            {"text": "Ignore this https://example.com/home"},
+        ]
+        urls = extract_paper_urls(messages)
+        self.assertEqual(len(urls), 2)
 
 
 if __name__ == "__main__":

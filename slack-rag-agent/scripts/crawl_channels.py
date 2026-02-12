@@ -23,6 +23,10 @@ async def main() -> None:
     parser.add_argument("--days-back", type=int, default=30)
     parser.add_argument("--per-channel-page-cap", type=int, default=5)
     parser.add_argument("--top-k-files-per-channel", type=int, default=50)
+    parser.add_argument("--include-links", dest="include_links", action="store_true", help="Also ingest paper links found in messages.")
+    parser.add_argument("--no-include-links", dest="include_links", action="store_false", help="Disable paper link ingestion.")
+    parser.set_defaults(include_links=True)
+    parser.add_argument("--top-k-links-per-channel", type=int, default=50)
     parser.add_argument("--output", default="", help="Optional JSON output file.")
     args = parser.parse_args()
 
@@ -33,6 +37,8 @@ async def main() -> None:
         days_back=args.days_back,
         per_channel_page_cap=args.per_channel_page_cap,
         top_k_files_per_channel=args.top_k_files_per_channel,
+        include_links=args.include_links,
+        top_k_links_per_channel=args.top_k_links_per_channel,
     )
     text = json.dumps(result, indent=2, default=str)
     if args.output:

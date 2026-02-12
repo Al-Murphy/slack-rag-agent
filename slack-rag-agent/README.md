@@ -81,7 +81,7 @@ Set channel targets in env:
 SLACK_CHANNEL_IDS=C01234567,C07654321
 ```
 
-Run crawler via CLI:
+Run crawler via CLI (PDFs + paper links by default):
 
 ```bash
 python scripts/crawl_channels.py --days-back 30 --per-channel-page-cap 5 --top-k-files-per-channel 50
@@ -93,6 +93,12 @@ Scan all channels visible to the bot:
 python scripts/crawl_channels.py --scan-all-accessible --days-back 7
 ```
 
+Disable link ingestion if needed:
+
+```bash
+python scripts/crawl_channels.py --channel-id C01234567 --no-include-links
+```
+
 Trigger via API:
 
 ```bash
@@ -102,7 +108,9 @@ curl -X POST http://127.0.0.1:8000/slack/ingest/channels \\
     "channel_ids": ["C01234567"],
     "days_back": 30,
     "per_channel_page_cap": 5,
-    "top_k_files_per_channel": 50
+    "top_k_files_per_channel": 50,
+    "include_links": true,
+    "top_k_links_per_channel": 50
   }'
 ```
 
@@ -110,6 +118,9 @@ Required Slack scopes for crawler:
 - `channels:history` and/or `groups:history`
 - `channels:read` and/or `groups:read`
 - `files:read`
+
+Optional for stronger full-text fallback via Unpaywall:
+- set `UNPAYWALL_EMAIL` in `.env`
 
 ### Metrics included in `validation_report.json`
 
@@ -120,6 +131,10 @@ Required Slack scopes for crawler:
 ## Retrieval and safety behavior
 
 - Ingestion deduplicates on SHA-256 file hash via the `documents` table.
+- Link ingestion uses a full-text agent:
+  - tries direct URL
+  - tries discovered PDF links in page HTML
+  - tries fallback sources (arXiv/DOI, optional Unpaywall OA links)
 - Chunking targets semantically coherent chunks in the ~500-1000 token range.
 - Low-information/noisy chunks are filtered before embedding.
 - Query flow runs: plan -> retrieve -> rerank -> generate -> validate.

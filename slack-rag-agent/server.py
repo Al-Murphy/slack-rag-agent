@@ -33,6 +33,8 @@ class ChannelIngestRequest(BaseModel):
     days_back: int = Field(default=30, ge=1, le=365)
     per_channel_page_cap: int = Field(default=5, ge=1, le=50)
     top_k_files_per_channel: int = Field(default=50, ge=1, le=500)
+    include_links: bool = True
+    top_k_links_per_channel: int = Field(default=50, ge=1, le=500)
 
 
 @app.on_event("startup")
@@ -108,6 +110,8 @@ async def ingest_from_channels(body: ChannelIngestRequest) -> dict[str, Any]:
         days_back=body.days_back,
         per_channel_page_cap=body.per_channel_page_cap,
         top_k_files_per_channel=body.top_k_files_per_channel,
+        include_links=body.include_links,
+        top_k_links_per_channel=body.top_k_links_per_channel,
     )
     logger.info("Channel crawler completed result_summary=%s", result.get("metrics"))
     return result
