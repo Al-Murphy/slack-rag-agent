@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from typing import Any
@@ -49,13 +50,13 @@ async def _ingest_structured_document(
 
 
 async def process_slack_file_id(file_id: str, source_ref: str | None = None) -> dict[str, Any]:
-    file_info = fetch_file_info(file_id)
+    file_info = await asyncio.to_thread(fetch_file_info, file_id)
     logger.info("Processing Slack file_shared event file_id=%s", file_id)
     download_url = file_info.get("url_private_download") or file_info.get("url_private")
     if not download_url:
         return {"processed": False, "reason": "missing_download_url", "file_id": file_id}
 
-    file_bytes = download_slack_file(download_url, slack_auth_headers())
+    file_bytes = await asyncio.to_thread(download_slack_file, download_url, slack_auth_headers())
 
     if file_info.get("mimetype") != "application/pdf":
         logger.warning("Skipping unsupported mimetype file_id=%s mimetype=%s", file_id, file_info.get("mimetype"))
@@ -66,10 +67,20 @@ async def process_slack_file_id(file_id: str, source_ref: str | None = None) -> 
             "file_id": file_id,
         }
 
-    raw_text = parse_pdf_bytes(file_bytes)
+    # Early dedup check avoids parse + structuring for repeated files.
+    doc_hash = hashlib.sha256(file_bytes).hexdigest()
+    if document_exists_by_hash(doc_hash):
+        return {
+            "processed": True,
+            "file_id": file_id,
+            "doc_hash": doc_hash,
+            "chunks_inserted": 0,
+            "duplicate": True,
+        }
+
+    raw_text = await asyncio.to_thread(parse_pdf_bytes, file_bytes)
     structured = await extract_structured_sections(raw_text)
 
-    doc_hash = hashlib.sha256(file_bytes).hexdigest()
     doc_id = f"slack:{file_id}:{doc_hash[:12]}"
     result = await _ingest_structured_document(
         doc_hash=doc_hash,
@@ -102,6 +113,20 @@ async def process_slack_paper_url(url: str, source_ref: str, context_text: str =
     full_text = resolution["full_text"]
     doc_hash = resolution["content_hash"]
     doc_id = f"slack:url:{doc_hash[:12]}"
+
+    # Early dedup check avoids expensive LLM structuring when content already indexed.
+    if document_exists_by_hash(doc_hash):
+        return {
+            "processed": True,
+            "doc_hash": doc_hash,
+            "chunks_inserted": 0,
+            "duplicate": True,
+            "url": url,
+            "resolved_source_url": resolution.get("source_url", url),
+            "resolved_source_kind": resolution.get("source_kind", "unknown"),
+            "trace": resolution.get("trace", []),
+        }
+
     structured = await extract_structured_sections(full_text)
 
     result = await _ingest_structured_document(

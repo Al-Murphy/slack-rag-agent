@@ -35,6 +35,7 @@ class ChannelIngestRequest(BaseModel):
     top_k_files_per_channel: int = Field(default=50, ge=1, le=500)
     include_links: bool = True
     top_k_links_per_channel: int = Field(default=50, ge=1, le=500)
+    link_concurrency_limit: int = Field(default=3, ge=1, le=20)
 
 
 @app.on_event("startup")
@@ -112,6 +113,7 @@ async def ingest_from_channels(body: ChannelIngestRequest) -> dict[str, Any]:
         top_k_files_per_channel=body.top_k_files_per_channel,
         include_links=body.include_links,
         top_k_links_per_channel=body.top_k_links_per_channel,
+        link_concurrency_limit=body.link_concurrency_limit,
     )
     logger.info("Channel crawler completed result_summary=%s", result.get("metrics"))
     return result

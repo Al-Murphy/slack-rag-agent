@@ -130,6 +130,7 @@ async def ingest_channels(
     top_k_files_per_channel: int = 50,
     include_links: bool = True,
     top_k_links_per_channel: int = 50,
+    link_concurrency_limit: int = 3,
 ) -> dict[str, Any]:
     from slack_listener.event_handler import process_slack_file_id, process_slack_paper_url
 
@@ -183,14 +184,24 @@ async def ingest_channels(
                     results.append({"processed": False, "file_id": file_id, "error": str(exc), "channel_id": channel_id})
                     await asyncio.sleep(0.1)
 
-            for link in paper_links:
-                url = link["url"]
-                try:
-                    r = await process_slack_paper_url(
-                        url=url,
-                        source_ref=f"channel:{channel_id}:{link.get('message_ts', '')}",
-                        context_text=link.get("message_text", ""),
-                    )
+            if paper_links:
+                sem = asyncio.Semaphore(max(1, int(link_concurrency_limit)))
+
+                async def _process_link(link: dict[str, str]) -> dict[str, Any]:
+                    url = link["url"]
+                    try:
+                        async with sem:
+                            return await process_slack_paper_url(
+                                url=url,
+                                source_ref=f"channel:{channel_id}:{link.get('message_ts', '')}",
+                                context_text=link.get("message_text", ""),
+                            )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.exception("Failed to process paper URL=%s in channel=%s", url, channel_id)
+                        return {"processed": False, "url": url, "error": str(exc), "channel_id": channel_id}
+
+                link_results = await asyncio.gather(*[_process_link(link) for link in paper_links])
+                for r in link_results:
                     results.append(r)
                     if r.get("duplicate"):
                         by_channel[channel_id]["duplicates"] += 1
@@ -198,11 +209,6 @@ async def ingest_channels(
                         by_channel[channel_id]["ingested"] += 1
                     else:
                         by_channel[channel_id]["errors"] += 1
-                except Exception as exc:  # noqa: BLE001
-                    logger.exception("Failed to process paper URL=%s in channel=%s", url, channel_id)
-                    by_channel[channel_id]["errors"] += 1
-                    results.append({"processed": False, "url": url, "error": str(exc), "channel_id": channel_id})
-                    await asyncio.sleep(0.1)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Failed channel scan channel_id=%s", channel_id)
             by_channel[channel_id]["errors"] += 1

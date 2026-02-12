@@ -27,6 +27,7 @@ async def main() -> None:
     parser.add_argument("--no-include-links", dest="include_links", action="store_false", help="Disable paper link ingestion.")
     parser.set_defaults(include_links=True)
     parser.add_argument("--top-k-links-per-channel", type=int, default=50)
+    parser.add_argument("--link-concurrency-limit", type=int, default=3)
     parser.add_argument("--output", default="", help="Optional JSON output file.")
     args = parser.parse_args()
 
@@ -39,6 +40,7 @@ async def main() -> None:
         top_k_files_per_channel=args.top_k_files_per_channel,
         include_links=args.include_links,
         top_k_links_per_channel=args.top_k_links_per_channel,
+        link_concurrency_limit=args.link_concurrency_limit,
     )
     text = json.dumps(result, indent=2, default=str)
     if args.output:
