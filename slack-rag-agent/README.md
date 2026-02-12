@@ -9,6 +9,16 @@ Minimal Slack-to-RAG starter for:
 - Deduplication by document hash and low-information filtering
 - Grounded answers with citations and validation scoring
 
+## Agentic AI approach
+
+This system uses specialized agents in a single pipeline:
+- **Ingestion agent**: scans Slack channels, ingests PDFs and paper links, resolves full text, deduplicates, and stores chunks.
+- **Retrieval agent**: embeds query + retrieves candidate chunks from pgvector.
+- **Controller agent**: plans, reranks, checks confidence, and decides answer vs fallback.
+- **Generation agent**: produces grounded answers with chunk citations.
+
+Core loop: **ingest -> structure -> chunk -> embed -> retrieve -> rerank -> answer -> validate**.
+
 ## Quick start
 
 1. Create and activate a virtual environment.
