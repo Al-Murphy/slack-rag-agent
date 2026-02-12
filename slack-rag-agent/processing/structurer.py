@@ -2,8 +2,6 @@ import json
 import os
 import re
 
-from openai import AsyncOpenAI
-
 _SCHEMA = {
     "name": "paper_structure",
     "strict": True,
@@ -27,9 +25,14 @@ _SCHEMA = {
 
 
 def _extract_by_header(text: str, header: str) -> str:
-    pattern = rf"(?is){header}\s*[:\n]\s*(.*?)(?=\n[A-Z][A-Za-z ]{{2,40}}\s*[:\n]|$)"
+    # Wrap header alternatives in a non-capturing group so pipes in the header
+    # don't split the full regex and produce partial/invalid matches.
+    pattern = rf"(?is)(?:{header})\s*[:\n]\s*(.*?)(?=\n[A-Z][A-Za-z ]{{2,40}}\s*[:\n]|$)"
     m = re.search(pattern, text)
-    return (m.group(1).strip() if m else "")[:6000]
+    if not m:
+        return ""
+    section = m.group(1) or ""
+    return section.strip()[:6000]
 
 
 def heuristic_structure(text: str) -> dict:
@@ -47,6 +50,8 @@ def heuristic_structure(text: str) -> dict:
 
 async def extract_structured_sections(text: str) -> dict:
     """Extract structured fields from raw research text."""
+    from openai import AsyncOpenAI
+
     client = AsyncOpenAI()
     model = os.environ.get("OPENAI_MODEL_CHAT", "gpt-4o-mini")
 

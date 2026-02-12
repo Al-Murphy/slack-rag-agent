@@ -2,6 +2,7 @@ import unittest
 
 from agent.controller import Plan, confidence_score, rerank_chunks
 from processing.chunking import is_low_information, split_text
+from processing.structurer import _extract_by_header
 from slack_listener.channel_crawler import extract_paper_urls, extract_pdf_file_ids, parse_channel_targets
 from processing.text_extractor import extract_text_from_html
 
@@ -61,6 +62,11 @@ class UnitTests(unittest.TestCase):
         ]
         urls = extract_paper_urls(messages)
         self.assertEqual(len(urls), 2)
+
+    def test_extract_by_header_handles_alternatives(self) -> None:
+        text = "Title\nAbstract:\nA short abstract.\n\nMethods:\nWe did x.\n\nResults:\nIt worked."
+        methods = _extract_by_header(text, "methods?|methodology")
+        self.assertIn("We did x", methods)
 
 
 if __name__ == "__main__":
