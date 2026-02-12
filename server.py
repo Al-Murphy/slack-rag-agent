@@ -4,11 +4,13 @@ import hashlib
 import hmac
 import logging
 import os
+from pathlib import Path
 import time
 from typing import Any
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 # Load .env before importing modules that read environment variables.
@@ -50,9 +52,12 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/")
-def root() -> dict[str, str]:
-    return {"status": "ok", "docs": "/docs", "health": "/health", "query": "/query?q=your+question"}
+@app.get("/", response_class=HTMLResponse)
+def root() -> str:
+    ui_path = Path(__file__).parent / "ui" / "index.html"
+    if ui_path.exists():
+        return ui_path.read_text(encoding="utf-8")
+    return "<h1>Slack RAG Chat</h1><p>UI not found. Expected ui/index.html</p>"
 
 
 def _verify_slack_signature(raw_body: bytes, headers: dict[str, str]) -> bool:

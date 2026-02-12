@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Slack RAG Chat</title>
+    <style>
+      :root {
+        --bg: #f5f7fb;
+        --panel: #ffffff;
+        --text: #111827;
+        --muted: #6b7280;
+        --line: #e5e7eb;
+        --accent: #111827;
+        --assistant: #f8fafc;
+        --user: #e5f0ff;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        font-family: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+        color: var(--text);
+        background: radial-gradient(circle at top right, #eef2ff 0%, var(--bg) 45%, #f8fafc 100%);
+        min-height: 100vh;
+      }
+
+      .wrap {
+        max-width: 980px;
+        margin: 0 auto;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        padding: 20px 16px;
+      }
+
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 14px;
+      }
+
+      .title {
+        font-weight: 700;
+        font-size: 18px;
+        letter-spacing: 0.01em;
+      }
+
+      .sub {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .chat {
+        flex: 1;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        border-radius: 16px;
+        padding: 18px;
+        overflow: auto;
+        box-shadow: 0 12px 30px rgba(17, 24, 39, 0.06);
+      }
+
+      .msg {
+        max-width: 88%;
+        margin: 0 0 14px;
+        padding: 12px 14px;
+        border-radius: 14px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+      }
+
+      .msg.user {
+        margin-left: auto;
+        background: var(--user);
+        border: 1px solid #c6ddff;
+      }
+
+      .msg.assistant {
+        background: var(--assistant);
+        border: 1px solid var(--line);
+      }
+
+      .meta {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .composer {
+        margin-top: 14px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        border-radius: 18px;
+        padding: 10px;
+        box-shadow: 0 8px 24px rgba(17, 24, 39, 0.06);
+      }
+
+      .row {
+        display: flex;
+        gap: 10px;
+        align-items: flex-end;
+      }
+
+      textarea {
+        flex: 1;
+        border: none;
+        resize: none;
+        background: transparent;
+        font: inherit;
+        color: var(--text);
+        min-height: 44px;
+        max-height: 180px;
+        outline: none;
+        padding: 8px 10px;
+      }
+
+      button {
+        border: none;
+        background: var(--accent);
+        color: #fff;
+        border-radius: 12px;
+        height: 42px;
+        padding: 0 16px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      @media (max-width: 700px) {
+        .wrap { padding: 12px; }
+        .chat { border-radius: 12px; padding: 12px; }
+        .msg { max-width: 95%; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <header class="topbar">
+        <div>
+          <div class="title">Slack RAG Chat</div>
+          <div class="sub">Query indexed papers with free text</div>
+        </div>
+      </header>
+
+      <section id="chat" class="chat">
+        <div class="msg assistant">Ask a question about your indexed papers. I will answer using retrieved context and citations.</div>
+      </section>
+
+      <form id="composer" class="composer">
+        <div class="row">
+          <textarea id="input" placeholder="Message Slack RAG..." required></textarea>
+          <button id="send" type="submit">Send</button>
+        </div>
+      </form>
+    </main>
+
+    <script>
+      const chat = document.getElementById('chat');
+      const form = document.getElementById('composer');
+      const input = document.getElementById('input');
+      const send = document.getElementById('send');
+
+      function addMessage(role, text, meta='') {
+        const el = document.createElement('div');
+        el.className = `msg ${role}`;
+        el.textContent = text;
+        if (meta) {
+          const m = document.createElement('div');
+          m.className = 'meta';
+          m.textContent = meta;
+          el.appendChild(m);
+        }
+        chat.appendChild(el);
+        chat.scrollTop = chat.scrollHeight;
+      }
+
+      async function ask(q) {
+        const url = `/query?q=${encodeURIComponent(q)}&top_k=5`;
+        const res = await fetch(url);
+        if (!res.ok) {
+          throw new Error(`Request failed: ${res.status}`);
+        }
+        return await res.json();
+      }
+
+      function autoGrow() {
+        input.style.height = 'auto';
+        input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
+      }
+
+      input.addEventListener('input', autoGrow);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          form.requestSubmit();
+        }
+      });
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const q = input.value.trim();
+        if (!q) return;
+
+        addMessage('user', q);
+        input.value = '';
+        autoGrow();
+        send.disabled = true;
+
+        try {
+          const data = await ask(q);
+          const answer = data.answer || 'No answer generated.';
+          const n = data.matches?.length ?? 0;
+          const latency = data.metrics?.latency_ms?.total ?? '-';
+          addMessage('assistant', answer, `${n} matches · ${latency} ms`);
+        } catch (err) {
+          addMessage('assistant', 'Error querying RAG backend.', String(err));
+        } finally {
+          send.disabled = false;
+          input.focus();
+        }
+      });
+    </script>
+  </body>
+</html>
