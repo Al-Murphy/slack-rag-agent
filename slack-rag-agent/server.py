@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import os
 import time
 from typing import Any
@@ -9,23 +10,36 @@ from typing import Any
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 
+# Load .env before importing modules that read environment variables.
+load_dotenv()
+
 from agent.rag_agent import query_rag
 from database.vector_store import init_db
 from slack_listener.event_handler import handle_slack_event
 
-load_dotenv()
-
 app = FastAPI(title="Slack RAG Agent MVP")
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 @app.on_event("startup")
 def startup() -> None:
+    logger.info("Initializing database schema")
     init_db()
+    logger.info("Startup complete")
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/")
+def root() -> dict[str, str]:
+    return {"status": "ok", "docs": "/docs", "health": "/health", "query": "/query?q=your+question"}
 
 
 def _verify_slack_signature(raw_body: bytes, headers: dict[str, str]) -> bool:
@@ -62,6 +76,7 @@ async def slack_events(req: Request) -> dict[str, Any]:
         return {"challenge": data.get("challenge")}
 
     result = await handle_slack_event(data)
+    logger.info("Slack event processed result=%s", result)
     return {"ok": True, "result": result}
 
 

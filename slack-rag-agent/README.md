@@ -5,6 +5,9 @@ Minimal Slack-to-RAG starter for:
 - PDF parsing + structured extraction
 - Embedding + pgvector storage
 - Query endpoint with retrieval + answer generation
+- Planner/controller orchestration with confidence fallback
+- Deduplication by document hash and low-information filtering
+- Grounded answers with citations and validation scoring
 
 ## Quick start
 
@@ -26,6 +29,12 @@ cp .env.example .env
 
 ```bash
 uvicorn server:app --reload
+```
+
+## Docker local staging
+
+```bash
+docker compose up --build
 ```
 
 ## Endpoints
@@ -68,6 +77,15 @@ python scripts/validate_mvp.py --queries-json tests/validation_queries.json --to
 - Retrieval relevance proxy: lexical overlap between query keywords and returned chunks.
 - Coverage proxy: count of distinct extracted sections represented in top-k matches.
 - Latency: embedding, retrieval, generation, and total query timings.
+
+## Retrieval and safety behavior
+
+- Ingestion deduplicates on SHA-256 file hash via the `documents` table.
+- Chunking targets semantically coherent chunks in the ~500-1000 token range.
+- Low-information/noisy chunks are filtered before embedding.
+- Query flow runs: plan -> retrieve -> rerank -> generate -> validate.
+- If confidence is low, the agent returns an explicit \"not confident\" fallback.
+- Answers include citations metadata (`citations`) for verification.
 
 ## Notes
 

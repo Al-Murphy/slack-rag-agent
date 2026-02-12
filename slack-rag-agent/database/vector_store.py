@@ -1,31 +1,61 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections.abc import Sequence
+from functools import lru_cache
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import sessionmaker
 
-from database.models import Base, Chunk
+from database.models import Base, Chunk, Document
 from processing.chunking import sections_to_chunks
 from processing.embeddings import get_embeddings
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://user:pass@localhost:5432/ragdb")
+DEFAULT_DATABASE_URL = "postgresql://user:pass@localhost:5432/ragdb"
+logger = logging.getLogger(__name__)
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+@lru_cache(maxsize=1)
+def _engine():
+    database_url = os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL)
+    return create_engine(database_url, pool_pre_ping=True)
+
+
+@lru_cache(maxsize=1)
+def _session_factory():
+    return sessionmaker(bind=_engine(), autoflush=False, autocommit=False)
 
 
 def init_db() -> None:
-    Base.metadata.create_all(bind=engine)
+    with _engine().begin() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    Base.metadata.create_all(bind=_engine())
 
 
-def insert_paper_into_db(structured_json: dict, doc_id: str) -> int:
+def document_exists_by_hash(doc_hash: str) -> bool:
+    SessionLocal = _session_factory()
+    with SessionLocal() as session:
+        stmt = select(Document.id).where(Document.doc_hash == doc_hash).limit(1)
+        return session.execute(stmt).scalar_one_or_none() is not None
+
+
+def insert_paper_into_db(
+    structured_json: dict,
+    doc_id: str,
+    doc_hash: str,
+    source: str = "slack",
+    source_ref: str = "",
+) -> int:
     """
     Split key sections into chunks, embed each, and persist to vector store.
     Returns number of inserted chunks.
     """
+    if document_exists_by_hash(doc_hash):
+        logger.info("Skipping duplicate document hash=%s doc_id=%s", doc_hash, doc_id)
+        return 0
+
     sections = [
         ("title", structured_json.get("title", "")),
         ("abstract", structured_json.get("abstract", "")),
@@ -51,17 +81,30 @@ def insert_paper_into_db(structured_json: dict, doc_id: str) -> int:
         )
 
     if not rows:
+        logger.warning("No chunks generated for doc_id=%s", doc_id)
         return 0
 
+    SessionLocal = _session_factory()
     with SessionLocal() as session:
+        session.add(
+            Document(
+                doc_id=doc_id,
+                doc_hash=doc_hash,
+                source=source,
+                source_ref=source_ref,
+                title=structured_json.get("title", "")[:500],
+            )
+        )
         session.add_all(rows)
         session.commit()
 
+    logger.info("Inserted document doc_id=%s chunks=%d", doc_id, len(rows))
     return len(rows)
 
 
 def search_similar_chunks(query_embedding: Sequence[float], top_k: int = 5) -> list[Chunk]:
     """Search by cosine distance using pgvector ordering."""
+    SessionLocal = _session_factory()
     with SessionLocal() as session:
         stmt = select(Chunk).order_by(Chunk.vector.cosine_distance(query_embedding)).limit(top_k)
         return list(session.execute(stmt).scalars().all())

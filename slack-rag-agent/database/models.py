@@ -12,6 +12,18 @@ class Base(DeclarativeBase):
     pass
 
 
+class Document(Base):
+    __tablename__ = "documents"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    doc_id: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    doc_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    source: Mapped[str] = mapped_column(String(64), default="slack")
+    source_ref: Mapped[str] = mapped_column(String(255), default="")
+    title: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class Chunk(Base):
     __tablename__ = "chunks"
 
