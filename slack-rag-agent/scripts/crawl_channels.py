@@ -4,8 +4,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
+import sys
 
 from dotenv import load_dotenv
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from slack_listener.channel_crawler import ingest_channels
 
