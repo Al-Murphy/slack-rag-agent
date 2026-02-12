@@ -1,0 +1,14 @@
+[
+  {
+    "mode": "exact_phrase",
+    "query": "What are the key findings of this paper?"
+  },
+  {
+    "mode": "conceptual",
+    "query": "How did the authors evaluate their approach and what outcomes were most important?"
+  },
+  {
+    "mode": "edge_case",
+    "query": "What uncertainty or limitations are explicitly acknowledged?"
+  }
+]

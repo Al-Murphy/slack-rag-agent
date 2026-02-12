@@ -34,6 +34,41 @@ uvicorn server:app --reload
 - `POST /slack/events`
 - `GET /query?q=...&top_k=5`
 
+## End-to-end validation
+
+1. Start server:
+
+```bash
+uvicorn server:app --reload
+```
+
+2. Trigger real Slack ingestion:
+- Upload a PDF to a channel where your bot is present.
+- Capture the file ID from the event payload/logs.
+- Optional direct test using validator:
+
+```bash
+python scripts/validate_mvp.py --file-id FXXXXXXXX --report validation_report.json
+```
+
+3. Validate RAG search quality and latency:
+
+```bash
+python scripts/validate_mvp.py --top-k 5 --report validation_report.json
+```
+
+Or run with your own query set:
+
+```bash
+python scripts/validate_mvp.py --queries-json tests/validation_queries.json --top-k 5 --report validation_report.json
+```
+
+### Metrics included in `validation_report.json`
+
+- Retrieval relevance proxy: lexical overlap between query keywords and returned chunks.
+- Coverage proxy: count of distinct extracted sections represented in top-k matches.
+- Latency: embedding, retrieval, generation, and total query timings.
+
 ## Notes
 
 - The Slack event endpoint includes URL verification support and optional signature checks.
