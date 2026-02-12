@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 load_dotenv()
 
 from agent.rag_agent import query_rag
-from database.vector_store import init_db
+from database.vector_store import get_state_value, init_db, set_state_value
 from slack_listener.channel_crawler import ingest_channels
 from slack_listener.event_handler import handle_slack_event
 
@@ -27,6 +27,8 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+INCREMENTAL_CRAWL_STATE_KEY = "last_incremental_crawl_ts"
 
 
 class ChannelIngestRequest(BaseModel):
@@ -38,6 +40,16 @@ class ChannelIngestRequest(BaseModel):
     include_links: bool = True
     top_k_links_per_channel: int = Field(default=50, ge=1, le=500)
     link_concurrency_limit: int = Field(default=3, ge=1, le=20)
+
+
+class IncrementalCrawlRequest(BaseModel):
+    channel_ids: list[str] = Field(default_factory=list)
+    include_links: bool = True
+    per_channel_page_cap: int = Field(default=5, ge=1, le=50)
+    top_k_files_per_channel: int = Field(default=50, ge=1, le=500)
+    top_k_links_per_channel: int = Field(default=50, ge=1, le=500)
+    link_concurrency_limit: int = Field(default=3, ge=1, le=20)
+    initial_days_back: int = Field(default=1, ge=1, le=365)
 
 
 @app.on_event("startup")
@@ -122,3 +134,45 @@ async def ingest_from_channels(body: ChannelIngestRequest) -> dict[str, Any]:
     )
     logger.info("Channel crawler completed result_summary=%s", result.get("metrics"))
     return result
+
+
+@app.get("/crawl/incremental/status")
+def crawl_incremental_status() -> dict[str, Any]:
+    last_run_ts = get_state_value(INCREMENTAL_CRAWL_STATE_KEY)
+    return {"ok": True, "last_run_ts": last_run_ts}
+
+
+@app.post("/crawl/incremental")
+async def crawl_incremental(body: IncrementalCrawlRequest) -> dict[str, Any]:
+    previous_run_ts = get_state_value(INCREMENTAL_CRAWL_STATE_KEY)
+    oldest_ts_used = previous_run_ts or str(time.time() - (body.initial_days_back * 24 * 60 * 60))
+
+    result = await ingest_channels(
+        channel_ids=body.channel_ids,
+        scan_all_accessible=False,
+        days_back=body.initial_days_back,
+        per_channel_page_cap=body.per_channel_page_cap,
+        top_k_files_per_channel=body.top_k_files_per_channel,
+        include_links=body.include_links,
+        top_k_links_per_channel=body.top_k_links_per_channel,
+        link_concurrency_limit=body.link_concurrency_limit,
+        oldest_ts=oldest_ts_used,
+    )
+
+    new_run_ts = str(time.time())
+    set_state_value(INCREMENTAL_CRAWL_STATE_KEY, new_run_ts)
+
+    logger.info(
+        "Incremental crawl complete previous_run_ts=%s new_run_ts=%s metrics=%s",
+        previous_run_ts,
+        new_run_ts,
+        result.get("metrics"),
+    )
+
+    return {
+        "ok": True,
+        "previous_run_ts": previous_run_ts,
+        "new_run_ts": new_run_ts,
+        "oldest_ts_used": oldest_ts_used,
+        "result": result,
+    }

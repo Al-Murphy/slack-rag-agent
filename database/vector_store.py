@@ -9,7 +9,7 @@ from functools import lru_cache
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import sessionmaker
 
-from database.models import Base, Chunk, Document
+from database.models import Base, Chunk, CrawlState, Document
 from processing.chunking import sections_to_chunks
 from processing.embeddings import get_embeddings
 
@@ -108,3 +108,21 @@ def search_similar_chunks(query_embedding: Sequence[float], top_k: int = 5) -> l
     with SessionLocal() as session:
         stmt = select(Chunk).order_by(Chunk.vector.cosine_distance(query_embedding)).limit(top_k)
         return list(session.execute(stmt).scalars().all())
+
+
+def get_state_value(key: str) -> str | None:
+    SessionLocal = _session_factory()
+    with SessionLocal() as session:
+        row = session.get(CrawlState, key)
+        return row.value if row else None
+
+
+def set_state_value(key: str, value: str) -> None:
+    SessionLocal = _session_factory()
+    with SessionLocal() as session:
+        row = session.get(CrawlState, key)
+        if row:
+            row.value = value
+        else:
+            session.add(CrawlState(key=key, value=value))
+        session.commit()

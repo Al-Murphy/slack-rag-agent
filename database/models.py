@@ -35,3 +35,11 @@ class Chunk(Base):
     meta_json: Mapped[str] = mapped_column(Text, default="{}")
     vector: Mapped[list[float]] = mapped_column(Vector(int(os.environ.get("EMBEDDING_DIM", "3072"))))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class CrawlState(Base):
+    __tablename__ = "crawl_state"
+
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

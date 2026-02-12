@@ -163,6 +163,7 @@ async def ingest_channels(
     include_links: bool = True,
     top_k_links_per_channel: int = 50,
     link_concurrency_limit: int = 3,
+    oldest_ts: str | None = None,
 ) -> dict[str, Any]:
     from slack_listener.event_handler import process_slack_file_id, process_slack_paper_url
 
@@ -173,7 +174,7 @@ async def ingest_channels(
     if not targets:
         return {"ok": False, "reason": "no_channels_configured", "processed": 0}
 
-    oldest_ts = str(time.time() - (days_back * 24 * 60 * 60))
+    oldest_ts = oldest_ts or str(time.time() - (days_back * 24 * 60 * 60))
     results: list[dict[str, Any]] = []
     total_timing = _new_timing_bucket()
 
@@ -265,6 +266,7 @@ async def ingest_channels(
         "ok": True,
         "scan_all_accessible": scan_all_accessible,
         "channels_scanned": len(targets),
+        "oldest_ts_used": oldest_ts,
         "metrics": {
             "ingested": total_ingested,
             "duplicates": total_duplicates,
