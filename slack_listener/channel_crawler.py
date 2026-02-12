@@ -122,6 +122,38 @@ def _channel_history_pages(channel_id: str, oldest_ts: str | None, limit: int = 
     return pages
 
 
+def _new_timing_bucket() -> dict[str, float]:
+    return {
+        "total": 0.0,
+        "fetch_metadata": 0.0,
+        "download": 0.0,
+        "parse_pdf": 0.0,
+        "resolve_total": 0.0,
+        "resolve_fetch": 0.0,
+        "resolve_parse_pdf": 0.0,
+        "resolve_extract_html": 0.0,
+        "structure": 0.0,
+        "insert": 0.0,
+    }
+
+
+def _accumulate_timing(bucket: dict[str, float], timing_ms: dict[str, Any] | None) -> None:
+    if not timing_ms:
+        return
+    for key in bucket.keys():
+        value = timing_ms.get(key)
+        if value is None:
+            continue
+        try:
+            bucket[key] += float(value)
+        except (TypeError, ValueError):
+            continue
+
+
+def _rounded_timing(bucket: dict[str, float]) -> dict[str, float]:
+    return {k: round(v, 2) for k, v in bucket.items()}
+
+
 async def ingest_channels(
     channel_ids: list[str] | None = None,
     scan_all_accessible: bool = False,
@@ -143,13 +175,16 @@ async def ingest_channels(
 
     oldest_ts = str(time.time() - (days_back * 24 * 60 * 60))
     results: list[dict[str, Any]] = []
-    by_channel: dict[str, dict[str, int]] = defaultdict(
+    total_timing = _new_timing_bucket()
+
+    by_channel: dict[str, dict[str, Any]] = defaultdict(
         lambda: {
             "pdf_discovered": 0,
             "link_discovered": 0,
             "ingested": 0,
             "duplicates": 0,
             "errors": 0,
+            "timing_ms": _new_timing_bucket(),
         }
     )
 
@@ -172,6 +207,8 @@ async def ingest_channels(
                 try:
                     r = await process_slack_file_id(file_id=file_id, source_ref=f"channel:{channel_id}")
                     results.append(r)
+                    _accumulate_timing(by_channel[channel_id]["timing_ms"], r.get("timing_ms"))
+                    _accumulate_timing(total_timing, r.get("timing_ms"))
                     if r.get("duplicate"):
                         by_channel[channel_id]["duplicates"] += 1
                     elif r.get("processed"):
@@ -203,6 +240,8 @@ async def ingest_channels(
                 link_results = await asyncio.gather(*[_process_link(link) for link in paper_links])
                 for r in link_results:
                     results.append(r)
+                    _accumulate_timing(by_channel[channel_id]["timing_ms"], r.get("timing_ms"))
+                    _accumulate_timing(total_timing, r.get("timing_ms"))
                     if r.get("duplicate"):
                         by_channel[channel_id]["duplicates"] += 1
                     elif r.get("processed"):
@@ -219,6 +258,9 @@ async def ingest_channels(
     total_duplicates = sum(v["duplicates"] for v in by_channel.values())
     total_errors = sum(v["errors"] for v in by_channel.values())
 
+    for cid in by_channel:
+        by_channel[cid]["timing_ms"] = _rounded_timing(by_channel[cid]["timing_ms"])
+
     return {
         "ok": True,
         "scan_all_accessible": scan_all_accessible,
@@ -228,6 +270,7 @@ async def ingest_channels(
             "duplicates": total_duplicates,
             "errors": total_errors,
             "duration_ms": duration,
+            "timing_ms": _rounded_timing(total_timing),
         },
         "by_channel": by_channel,
         "results": results,

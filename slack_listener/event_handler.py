@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import time
 from typing import Any
 
 from agent.fulltext_agent import ensure_full_text_for_paper
@@ -50,13 +51,21 @@ async def _ingest_structured_document(
 
 
 async def process_slack_file_id(file_id: str, source_ref: str | None = None) -> dict[str, Any]:
+    t_start = time.perf_counter()
+    t_fetch_meta = t_download = t_parse_pdf = t_structure = t_insert = 0.0
+
+    t0 = time.perf_counter()
     file_info = await asyncio.to_thread(fetch_file_info, file_id)
+    t_fetch_meta += (time.perf_counter() - t0) * 1000
+
     logger.info("Processing Slack file_shared event file_id=%s", file_id)
     download_url = file_info.get("url_private_download") or file_info.get("url_private")
     if not download_url:
         return {"processed": False, "reason": "missing_download_url", "file_id": file_id}
 
+    t1 = time.perf_counter()
     file_bytes = await asyncio.to_thread(download_slack_file, download_url, slack_auth_headers())
+    t_download += (time.perf_counter() - t1) * 1000
 
     if file_info.get("mimetype") != "application/pdf":
         logger.warning("Skipping unsupported mimetype file_id=%s mimetype=%s", file_id, file_info.get("mimetype"))
@@ -76,12 +85,26 @@ async def process_slack_file_id(file_id: str, source_ref: str | None = None) -> 
             "doc_hash": doc_hash,
             "chunks_inserted": 0,
             "duplicate": True,
+            "timing_ms": {
+                "total": round((time.perf_counter() - t_start) * 1000, 2),
+                "fetch_metadata": round(t_fetch_meta, 2),
+                "download": round(t_download, 2),
+                "parse_pdf": 0.0,
+                "structure": 0.0,
+                "insert": 0.0,
+            },
         }
 
+    t2 = time.perf_counter()
     raw_text = await asyncio.to_thread(parse_pdf_bytes, file_bytes)
+    t_parse_pdf += (time.perf_counter() - t2) * 1000
+
+    t3 = time.perf_counter()
     structured = await extract_structured_sections(raw_text)
+    t_structure += (time.perf_counter() - t3) * 1000
 
     doc_id = f"slack:{file_id}:{doc_hash[:12]}"
+    t4 = time.perf_counter()
     result = await _ingest_structured_document(
         doc_hash=doc_hash,
         doc_id=doc_id,
@@ -90,6 +113,17 @@ async def process_slack_file_id(file_id: str, source_ref: str | None = None) -> 
         source_ref=source_ref or file_info.get("permalink", file_id),
         extra={"file_id": file_id},
     )
+    t_insert += (time.perf_counter() - t4) * 1000
+
+    result["timing_ms"] = {
+        "total": round((time.perf_counter() - t_start) * 1000, 2),
+        "fetch_metadata": round(t_fetch_meta, 2),
+        "download": round(t_download, 2),
+        "parse_pdf": round(t_parse_pdf, 2),
+        "structure": round(t_structure, 2),
+        "insert": round(t_insert, 2),
+    }
+
     logger.info(
         "Completed Slack PDF ingestion file_id=%s doc_id=%s chunks=%s duplicate=%s",
         file_id,
@@ -101,13 +135,28 @@ async def process_slack_file_id(file_id: str, source_ref: str | None = None) -> 
 
 
 async def process_slack_paper_url(url: str, source_ref: str, context_text: str = "") -> dict[str, Any]:
+    t_start = time.perf_counter()
+
+    t0 = time.perf_counter()
     resolution = await ensure_full_text_for_paper(url=url, context_text=context_text)
+    resolve_call_ms = (time.perf_counter() - t0) * 1000
+
+    resolution_timing = resolution.get("timing_ms", {})
     if not resolution.get("ok"):
         return {
             "processed": False,
             "reason": resolution.get("reason", "full_text_not_found"),
             "url": url,
             "trace": resolution.get("trace", []),
+            "timing_ms": {
+                "total": round((time.perf_counter() - t_start) * 1000, 2),
+                "resolve_total": round(resolve_call_ms, 2),
+                "resolve_fetch": round(float(resolution_timing.get("fetch", 0.0)), 2),
+                "resolve_parse_pdf": round(float(resolution_timing.get("parse_pdf", 0.0)), 2),
+                "resolve_extract_html": round(float(resolution_timing.get("extract_html", 0.0)), 2),
+                "structure": 0.0,
+                "insert": 0.0,
+            },
         }
 
     full_text = resolution["full_text"]
@@ -125,10 +174,23 @@ async def process_slack_paper_url(url: str, source_ref: str, context_text: str =
             "resolved_source_url": resolution.get("source_url", url),
             "resolved_source_kind": resolution.get("source_kind", "unknown"),
             "trace": resolution.get("trace", []),
+            "cache_hit": resolution.get("cache_hit", False),
+            "timing_ms": {
+                "total": round((time.perf_counter() - t_start) * 1000, 2),
+                "resolve_total": round(resolve_call_ms, 2),
+                "resolve_fetch": round(float(resolution_timing.get("fetch", 0.0)), 2),
+                "resolve_parse_pdf": round(float(resolution_timing.get("parse_pdf", 0.0)), 2),
+                "resolve_extract_html": round(float(resolution_timing.get("extract_html", 0.0)), 2),
+                "structure": 0.0,
+                "insert": 0.0,
+            },
         }
 
+    t1 = time.perf_counter()
     structured = await extract_structured_sections(full_text)
+    structure_ms = (time.perf_counter() - t1) * 1000
 
+    t2 = time.perf_counter()
     result = await _ingest_structured_document(
         doc_hash=doc_hash,
         doc_id=doc_id,
@@ -140,8 +202,21 @@ async def process_slack_paper_url(url: str, source_ref: str, context_text: str =
             "resolved_source_url": resolution.get("source_url", url),
             "resolved_source_kind": resolution.get("source_kind", "unknown"),
             "trace": resolution.get("trace", []),
+            "cache_hit": resolution.get("cache_hit", False),
         },
     )
+    insert_ms = (time.perf_counter() - t2) * 1000
+
+    result["timing_ms"] = {
+        "total": round((time.perf_counter() - t_start) * 1000, 2),
+        "resolve_total": round(resolve_call_ms, 2),
+        "resolve_fetch": round(float(resolution_timing.get("fetch", 0.0)), 2),
+        "resolve_parse_pdf": round(float(resolution_timing.get("parse_pdf", 0.0)), 2),
+        "resolve_extract_html": round(float(resolution_timing.get("extract_html", 0.0)), 2),
+        "structure": round(structure_ms, 2),
+        "insert": round(insert_ms, 2),
+    }
+
     logger.info(
         "Completed Slack URL ingestion url=%s resolved=%s chunks=%s duplicate=%s",
         url,
