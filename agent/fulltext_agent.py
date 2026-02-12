@@ -4,10 +4,9 @@ import hashlib
 import logging
 from typing import Any
 
-import requests
-
 from processing.link_resolver import (
     discover_fallback_sources,
+    expand_source_url_candidates,
     fetch_url_payload,
     is_probably_full_text,
 )
@@ -21,12 +20,13 @@ async def ensure_full_text_for_paper(url: str, context_text: str = "") -> dict[s
     """
     Resolve a paper URL to usable full text.
     Strategy:
-    1) direct URL
-    2) candidate PDF/full-text links from page
+    1) known URL expansions for source domain (e.g. biorxiv .full/.full.pdf)
+    2) direct URL and discovered PDF/full-text links from page
     3) fallback sources (arXiv/DOI/Open-access sources)
     """
     trace: list[str] = []
-    candidates = [url]
+    candidates = []
+    candidates.extend(expand_source_url_candidates(url))
     candidates.extend(discover_fallback_sources(url=url, context_text=context_text))
 
     seen: set[str] = set()

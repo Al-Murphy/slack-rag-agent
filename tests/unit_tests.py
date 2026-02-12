@@ -2,6 +2,7 @@ import unittest
 
 from agent.controller import Plan, confidence_score, rerank_chunks
 from processing.chunking import is_low_information, split_text
+from processing.link_resolver import expand_source_url_candidates
 from processing.structurer import _extract_by_header
 from slack_listener.channel_crawler import extract_paper_urls, extract_pdf_file_ids, parse_channel_targets
 from processing.text_extractor import extract_text_from_html
@@ -63,6 +64,15 @@ class UnitTests(unittest.TestCase):
         urls = extract_paper_urls(messages)
         self.assertEqual(len(urls), 2)
 
+
+    def test_expand_source_url_candidates_biorxiv(self) -> None:
+        candidates = expand_source_url_candidates("https://www.biorxiv.org/content/10.64898/2026.02.05.703637v1")
+        self.assertIn("https://www.biorxiv.org/content/10.64898/2026.02.05.703637v1.full", candidates)
+        self.assertIn("https://www.biorxiv.org/content/10.64898/2026.02.05.703637v1.full.pdf", candidates)
+
+    def test_expand_source_url_candidates_arxiv_abs(self) -> None:
+        candidates = expand_source_url_candidates("https://arxiv.org/abs/2602.01230")
+        self.assertIn("https://arxiv.org/pdf/2602.01230.pdf", candidates)
     def test_extract_by_header_handles_alternatives(self) -> None:
         text = "Title\nAbstract:\nA short abstract.\n\nMethods:\nWe did x.\n\nResults:\nIt worked."
         methods = _extract_by_header(text, "methods?|methodology")

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import re
-from urllib.parse import unquote, urljoin
+from urllib.parse import parse_qs, unquote, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -15,7 +15,11 @@ USER_AGENT = os.environ.get(
 
 
 def _requests_headers() -> dict[str, str]:
-    return {"User-Agent": USER_AGENT}
+    return {
+        "User-Agent": USER_AGENT,
+        "Accept": "text/html,application/pdf;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
 
 
 def is_probably_full_text(text: str, min_words: int = 900) -> bool:
@@ -42,9 +46,65 @@ def _extract_candidate_links(html: str, base_url: str) -> list[str]:
             continue
         full = urljoin(base_url, href)
         l = full.lower()
-        if ".pdf" in l or "/pdf/" in l or "download" in l:
+        if ".pdf" in l or "/pdf/" in l or "download" in l or l.endswith(".full"):
             candidates.append(full)
     return candidates
+
+
+def expand_source_url_candidates(url: str) -> list[str]:
+    """
+    Publisher-aware URL expansion for full-text retrieval.
+    """
+    clean = url.strip()
+    if not clean:
+        return []
+
+    parsed = urlparse(clean)
+    host = parsed.netloc.lower()
+    path = parsed.path
+    candidates = [clean]
+
+    # bioRxiv / medRxiv article -> .full and .full.pdf variants
+    if ("biorxiv.org" in host or "medrxiv.org" in host) and "/content/" in path:
+        base = clean.split("?")[0]
+        if not base.endswith(".full"):
+            candidates.append(base + ".full")
+        if not base.endswith(".pdf"):
+            candidates.append(base + ".full.pdf")
+
+    # arXiv abs/pdf variants
+    if "arxiv.org" in host:
+        m = re.search(r"/(abs|pdf)/([0-9]{4}\.[0-9]{4,5})(v\d+)?", path)
+        if m:
+            arxiv_id = m.group(2)
+            version = m.group(3) or ""
+            candidates.append(f"https://arxiv.org/abs/{arxiv_id}{version}")
+            candidates.append(f"https://arxiv.org/pdf/{arxiv_id}{version}.pdf")
+
+    # Nature often exposes article PDFs at "<article>.pdf"
+    if "nature.com" in host and "/articles/" in path and not path.endswith(".pdf"):
+        candidates.append(clean.split("?")[0] + ".pdf")
+
+    # Springer article URL to direct PDF path
+    if "link.springer.com" in host and "/article/" in path:
+        doi_path = path.split("/article/", 1)[1]
+        candidates.append(f"https://link.springer.com/content/pdf/{doi_path}.pdf")
+
+    # science eprint links sometimes carry DOI in activationRedirect
+    if "science.org" in host and "activationRedirect=" in clean:
+        query = parse_qs(parsed.query)
+        redirect = query.get("activationRedirect", [""])[0]
+        if redirect:
+            candidates.append("https://www.science.org" + redirect)
+
+    # de-duplicate preserving order
+    seen: set[str] = set()
+    unique: list[str] = []
+    for c in candidates:
+        if c and c not in seen:
+            seen.add(c)
+            unique.append(c)
+    return unique
 
 
 def fetch_url_payload(url: str) -> dict:
@@ -62,7 +122,7 @@ def fetch_url_payload(url: str) -> dict:
 
     html = resp.text
     candidates = _extract_candidate_links(html=html, base_url=final_url)
-    for candidate in candidates[:10]:
+    for candidate in candidates[:15]:
         try:
             pdf_resp = requests.get(candidate, headers=_requests_headers(), timeout=DEFAULT_TIMEOUT, allow_redirects=True)
             pdf_resp.raise_for_status()
@@ -72,6 +132,13 @@ def fetch_url_payload(url: str) -> dict:
                     "kind": "pdf",
                     "resolved_url": pdf_resp.url,
                     "content_bytes": pdf_resp.content,
+                }
+
+            if "text/html" in pdf_ctype and pdf_resp.text:
+                return {
+                    "kind": "html",
+                    "resolved_url": pdf_resp.url,
+                    "html": pdf_resp.text,
                 }
         except Exception:
             continue
@@ -100,6 +167,7 @@ def _extract_arxiv_id(text: str) -> str | None:
 
 def discover_fallback_sources(url: str, context_text: str = "") -> list[str]:
     candidates: list[str] = []
+    candidates.extend(expand_source_url_candidates(url))
 
     arxiv_id = _extract_arxiv_id(url + " " + context_text)
     if arxiv_id:
