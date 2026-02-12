@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import os
+import ssl
 from typing import Any
 
+import certifi
 from slack_sdk import WebClient
 
 
 def _slack_client() -> WebClient:
-    return WebClient(token=os.environ.get("SLACK_BOT_TOKEN", ""))
+    ssl_context = ssl.create_default_context(cafile=certifi.where())
+    return WebClient(token=os.environ.get("SLACK_BOT_TOKEN", ""), ssl=ssl_context)
 
 
 def fetch_file_info(file_id: str) -> dict:

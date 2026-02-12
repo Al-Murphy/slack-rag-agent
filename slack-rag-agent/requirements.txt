@@ -3,6 +3,7 @@ slack_sdk>=3.18.0
 
 # HTTP
 requests>=2.31.0
+certifi>=2024.0.0
 
 # PDF & HTML processing
 pdfminer.six>=20201018
