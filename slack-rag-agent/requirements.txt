@@ -1,0 +1,24 @@
+# Slack client
+slack_sdk>=3.18.0
+
+# HTTP
+requests>=2.31.0
+
+# PDF & HTML processing
+pdfminer.six>=20201018
+beautifulsoup4>=4.12.2
+
+# OpenAI client
+openai>=1.0.0
+
+# Vector DB library (pgvector + SQLAlchemy)
+psycopg2-binary>=2.9.6
+SQLAlchemy>=2.0.0
+pgvector>=0.3.1
+
+# API server
+fastapi>=0.95.1
+uvicorn>=0.23.0
+
+# Config loader
+python-dotenv>=1.0.0
