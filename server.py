@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -7,6 +8,7 @@ import os
 from pathlib import Path
 import time
 from typing import Any
+from uuid import uuid4
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
@@ -29,6 +31,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 INCREMENTAL_CRAWL_STATE_KEY = "last_incremental_crawl_ts"
+CRAWL_JOBS: dict[str, dict[str, Any]] = {}
 
 
 class ChannelIngestRequest(BaseModel):
@@ -56,6 +59,17 @@ class ClearDbRequest(BaseModel):
     confirm_phrase: str
 
 
+class AsyncChannelIngestRequest(BaseModel):
+    channel_ids: list[str] = Field(default_factory=list)
+    scan_all_accessible: bool = False
+    days_back: int = Field(default=30, ge=1, le=365)
+    per_channel_page_cap: int = Field(default=5, ge=1, le=50)
+    top_k_files_per_channel: int = Field(default=50, ge=1, le=500)
+    include_links: bool = True
+    top_k_links_per_channel: int = Field(default=50, ge=1, le=500)
+    link_concurrency_limit: int = Field(default=3, ge=1, le=20)
+
+
 @app.on_event("startup")
 def startup() -> None:
     logger.info("Initializing database schema")
@@ -74,6 +88,43 @@ def root() -> str:
     if ui_path.exists():
         return ui_path.read_text(encoding="utf-8")
     return "<h1>Slack RAG Chat</h1><p>UI not found. Expected ui/index.html</p>"
+
+
+async def _run_channel_ingest_job(job_id: str, body: AsyncChannelIngestRequest) -> None:
+    job = CRAWL_JOBS[job_id]
+    job["status"] = "running"
+    job["started_at"] = time.time()
+
+    def _on_progress(update: dict[str, Any]) -> None:
+        processed = int(update.get("processed_channels", 0) or 0)
+        total = int(update.get("total_channels", 0) or 0)
+        pct = 0.0 if total <= 0 else round((processed / total) * 100, 2)
+        job["processed_channels"] = processed
+        job["total_channels"] = total
+        job["percent"] = pct
+        job["current_channel_id"] = update.get("current_channel_id")
+
+    try:
+        result = await ingest_channels(
+            channel_ids=body.channel_ids,
+            scan_all_accessible=body.scan_all_accessible,
+            days_back=body.days_back,
+            per_channel_page_cap=body.per_channel_page_cap,
+            top_k_files_per_channel=body.top_k_files_per_channel,
+            include_links=body.include_links,
+            top_k_links_per_channel=body.top_k_links_per_channel,
+            link_concurrency_limit=body.link_concurrency_limit,
+            progress_callback=_on_progress,
+        )
+        job["result"] = result
+        job["status"] = "completed"
+        job["percent"] = 100.0
+    except Exception as exc:  # noqa: BLE001
+        job["status"] = "failed"
+        job["error"] = str(exc)
+        logger.exception("Async ingest job failed job_id=%s", job_id)
+    finally:
+        job["finished_at"] = time.time()
 
 
 def _verify_slack_signature(raw_body: bytes, headers: dict[str, str]) -> bool:
@@ -144,6 +195,35 @@ async def ingest_from_channels(body: ChannelIngestRequest) -> dict[str, Any]:
     logger.info("Channel crawler completed result_summary=%s", result.get("metrics"))
     return result
 
+
+
+@app.post("/slack/ingest/channels/async")
+async def ingest_from_channels_async(body: AsyncChannelIngestRequest) -> dict[str, Any]:
+    job_id = str(uuid4())
+    CRAWL_JOBS[job_id] = {
+        "job_id": job_id,
+        "status": "queued",
+        "created_at": time.time(),
+        "started_at": None,
+        "finished_at": None,
+        "processed_channels": 0,
+        "total_channels": 0,
+        "percent": 0.0,
+        "current_channel_id": None,
+        "request": body.model_dump() if hasattr(body, "model_dump") else body.dict(),
+        "result": None,
+        "error": None,
+    }
+    asyncio.create_task(_run_channel_ingest_job(job_id, body))
+    return {"ok": True, "job_id": job_id}
+
+
+@app.get("/slack/ingest/channels/async/{job_id}")
+def ingest_from_channels_async_status(job_id: str) -> dict[str, Any]:
+    job = CRAWL_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job_not_found")
+    return {"ok": True, "job": job}
 
 
 @app.post("/admin/clear-db")

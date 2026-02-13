@@ -6,7 +6,7 @@ import os
 import re
 import time
 from collections import defaultdict
-from typing import Any
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +192,7 @@ async def ingest_channels(
     top_k_links_per_channel: int = 50,
     link_concurrency_limit: int = 3,
     oldest_ts: str | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     from slack_listener.event_handler import process_slack_file_id, process_slack_paper_url
 
@@ -219,7 +220,7 @@ async def ingest_channels(
         }
     )
 
-    for channel_id in targets:
+    for i, channel_id in enumerate(targets, start=1):
         try:
             pages = _channel_history_pages(
                 channel_id=channel_id,
@@ -287,6 +288,19 @@ async def ingest_channels(
             logger.exception("Failed channel scan channel_id=%s", channel_id)
             by_channel[channel_id]["errors"] += 1
             results.append({"processed": False, "channel_id": channel_id, "error": str(exc)})
+        finally:
+            if progress_callback:
+                try:
+                    progress_callback(
+                        {
+                            "processed_channels": i,
+                            "total_channels": len(targets),
+                            "current_channel_id": channel_id,
+                            "channel_stats": dict(by_channel[channel_id]),
+                        }
+                    )
+                except Exception:
+                    logger.debug("progress_callback failed", exc_info=True)
 
     duration = round((time.time() - started) * 1000, 2)
     total_ingested = sum(v["ingested"] for v in by_channel.values())

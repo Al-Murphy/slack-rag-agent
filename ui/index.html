@@ -599,8 +599,8 @@
         return { value, unit, days_back: value * unitDays };
       }
 
-      async function runWindowBackfill(daysBack) {
-        const res = await fetch('/slack/ingest/channels', {
+      async function startWindowBackfillJob(daysBack) {
+        const res = await fetch('/slack/ingest/channels/async', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -611,7 +611,13 @@
             top_k_links_per_channel: 200,
           })
         });
-        if (!res.ok) throw new Error(`Window scrape failed: ${res.status}`);
+        if (!res.ok) throw new Error(`Window scrape start failed: ${res.status}`);
+        return await res.json();
+      }
+
+      async function getWindowBackfillJob(jobId) {
+        const res = await fetch(`/slack/ingest/channels/async/${encodeURIComponent(jobId)}`);
+        if (!res.ok) throw new Error(`Window scrape status failed: ${res.status}`);
         return await res.json();
       }
 
@@ -657,22 +663,32 @@
         }
       }
 
-      function startProgressMessage(label) {
+      function startProgressMessage(label, autoAdvance=true) {
         const startedAt = Date.now();
         let percent = 2;
         const id = addMessage('assistant', label, '', { progress: { percent, label: `${percent}%` } });
 
-        const timer = setInterval(() => {
-          percent = Math.min(92, percent + (percent < 40 ? 7 : percent < 75 ? 4 : 2));
-          const elapsed = Math.round((Date.now() - startedAt) / 1000);
-          updateMessage(id, {
-            extra: { progress: { percent, label: `${percent}% · ${elapsed}s elapsed` } },
-          });
-        }, 900);
+        const timer = autoAdvance
+          ? setInterval(() => {
+              percent = Math.min(92, percent + (percent < 40 ? 7 : percent < 75 ? 4 : 2));
+              const elapsed = Math.round((Date.now() - startedAt) / 1000);
+              updateMessage(id, {
+                extra: { progress: { percent, label: `${percent}% · ${elapsed}s elapsed` } },
+              });
+            }, 900)
+          : null;
 
         return {
+          setProgress(nextPercent, labelText='') {
+            percent = Math.max(0, Math.min(99, Number(nextPercent || 0)));
+            const elapsed = Math.round((Date.now() - startedAt) / 1000);
+            const fallback = `${Math.round(percent)}% · ${elapsed}s elapsed`;
+            updateMessage(id, {
+              extra: { progress: { percent, label: labelText || fallback } },
+            });
+          },
           done(finalText, finalMeta) {
-            clearInterval(timer);
+            if (timer) clearInterval(timer);
             updateMessage(id, {
               text: finalText,
               meta: finalMeta,
@@ -680,7 +696,7 @@
             });
           },
           fail(finalText, err) {
-            clearInterval(timer);
+            if (timer) clearInterval(timer);
             updateMessage(id, {
               text: finalText,
               meta: String(err || ''),
@@ -742,9 +758,32 @@
         }
 
         backfill.disabled = true;
-        const progress = startProgressMessage(`Running backfill scrape for ${parsed.value} ${parsed.unit}...`);
+        const progress = startProgressMessage(`Running backfill scrape for ${parsed.value} ${parsed.unit}...`, false);
         try {
-          const payload = await runWindowBackfill(parsed.days_back);
+          const started = await startWindowBackfillJob(parsed.days_back);
+          const jobId = started.job_id;
+          if (!jobId) throw new Error('Missing backfill job id');
+
+          let payload = null;
+          for (;;) {
+            await new Promise((r) => setTimeout(r, 1000));
+            const statusResp = await getWindowBackfillJob(jobId);
+            const job = statusResp.job || {};
+            const total = Number(job.total_channels || 0);
+            const done = Number(job.processed_channels || 0);
+            const pct = total > 0 ? (done / total) * 100 : Number(job.percent || 0);
+            const current = job.current_channel_id ? ` · current=${job.current_channel_id}` : '';
+            progress.setProgress(pct, `${Math.round(pct)}% · ${done}/${total || '?'} channels${current}`);
+
+            if (job.status === 'completed') {
+              payload = job.result || {};
+              break;
+            }
+            if (job.status === 'failed') {
+              throw new Error(job.error || 'Backfill job failed');
+            }
+          }
+
           const m = payload.metrics || {};
           const byChannel = payload.by_channel || {};
           const touched = Object.entries(byChannel).filter(([, s]) => (s.ingested || 0) > 0 || (s.duplicates || 0) > 0 || (s.errors || 0) > 0).length;
