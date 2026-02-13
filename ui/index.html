@@ -63,6 +63,13 @@
         gap: 6px;
       }
 
+      .history-row {
+        display: grid;
+        grid-template-columns: 1fr 28px;
+        gap: 6px;
+        align-items: center;
+      }
+
       .history-item {
         width: 100%;
         border: 1px solid transparent;
@@ -73,6 +80,23 @@
         text-align: left;
         cursor: pointer;
         font-size: 13px;
+      }
+
+      .history-delete {
+        width: 28px;
+        height: 28px;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        background: #111827;
+        color: #94a3b8;
+        cursor: pointer;
+        font-size: 14px;
+        line-height: 1;
+      }
+
+      .history-delete:hover {
+        color: #f8fafc;
+        background: #1f2937;
       }
 
       .history-item:hover { background: #1f2937; }
@@ -372,6 +396,24 @@
         renderChat();
       }
 
+      function deleteConversation(id) {
+        const idx = conversations.findIndex((c) => c.id === id);
+        if (idx < 0) return;
+
+        conversations.splice(idx, 1);
+        if (!conversations.length) {
+          createConversation();
+        }
+
+        if (!conversations.some((c) => c.id === activeId)) {
+          activeId = conversations[0].id;
+        }
+
+        saveConversations();
+        renderHistory();
+        renderChat();
+      }
+
       function updateConversationTitle(convo, userText) {
         if (!convo.title || convo.title === 'New conversation') {
           convo.title = userText.slice(0, 60) || 'Conversation';
@@ -405,12 +447,31 @@
         historyEl.innerHTML = '';
         conversations.sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1));
         for (const c of conversations) {
+          const row = document.createElement('div');
+          row.className = 'history-row';
+
           const btn = document.createElement('button');
           btn.type = 'button';
           btn.className = `history-item ${c.id === activeId ? 'active' : ''}`;
           btn.textContent = c.title || 'Conversation';
           btn.addEventListener('click', () => setActiveConversation(c.id));
-          historyEl.appendChild(btn);
+
+          const del = document.createElement('button');
+          del.type = 'button';
+          del.className = 'history-delete';
+          del.title = 'Delete chat';
+          del.setAttribute('aria-label', 'Delete chat');
+          del.textContent = '×';
+          del.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const ok = window.confirm(`Delete chat "${c.title || 'Conversation'}"?`);
+            if (!ok) return;
+            deleteConversation(c.id);
+          });
+
+          row.appendChild(btn);
+          row.appendChild(del);
+          historyEl.appendChild(row);
         }
       }
 
