@@ -26,6 +26,8 @@ class Document(Base):
     tldr_text: Mapped[str] = mapped_column(Text, default="")
     summary_text: Mapped[str] = mapped_column(Text, default="")
     summary_vector: Mapped[list[float] | None] = mapped_column(Vector(int(os.environ.get("EMBEDDING_DIM", "3072"))), nullable=True)
+    abstract_vector: Mapped[list[float] | None] = mapped_column(Vector(int(os.environ.get("EMBEDDING_DIM", "3072"))), nullable=True)
+    findings_vector: Mapped[list[float] | None] = mapped_column(Vector(int(os.environ.get("EMBEDDING_DIM", "3072"))), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
