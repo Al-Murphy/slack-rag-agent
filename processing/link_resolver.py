@@ -14,6 +14,18 @@ USER_AGENT = os.environ.get(
 )
 
 
+NON_PAPER_URL_PATTERNS = (
+    r"/articles/?\?type=",
+    r"/subjects/",
+    r"/collections/",
+    r"/news(?:/|$)",
+    r"/category/",
+    r"/latest(?:/|$)",
+    r"/journal(?:/|$)",
+    r"/toc(?:/|$)",
+)
+
+
 def _requests_headers() -> dict[str, str]:
     return {
         "User-Agent": USER_AGENT,
@@ -35,6 +47,37 @@ def is_probably_full_text(text: str, min_words: int = 900) -> bool:
     lowered = normalized.lower()
     marker_hits = sum(1 for m in markers if m in lowered)
     return marker_hits >= 2
+
+
+def is_obvious_non_paper_url(url: str) -> bool:
+    u = url.strip().lower()
+    if not u:
+        return True
+    # Common true-positive paper endpoints we should not reject.
+    allow_signals = ("/abs/", "/pdf/", "/article/", "/articles/", "/content/", "doi.org/", "arxiv.org/")
+    if any(s in u for s in allow_signals) and "type=" not in u:
+        return False
+    return any(re.search(pattern, u) for pattern in NON_PAPER_URL_PATTERNS)
+
+
+def paper_signal_score(url: str, text: str) -> dict[str, object]:
+    normalized = " ".join((text or "").split())
+    lowered = normalized.lower()
+    words = len(normalized.split()) if normalized else 0
+
+    markers = ("abstract", "introduction", "methods", "results", "discussion", "conclusion", "references")
+    marker_hits = [m for m in markers if m in lowered]
+
+    looks_non_paper = is_obvious_non_paper_url(url)
+    # Conservative threshold to avoid indexing category/news/listing pages.
+    is_paper = (not looks_non_paper) and words >= 900 and len(marker_hits) >= 2
+
+    return {
+        "is_paper": is_paper,
+        "word_count": words,
+        "marker_hits": marker_hits,
+        "looks_non_paper_url": looks_non_paper,
+    }
 
 
 def _extract_candidate_links(html: str, base_url: str) -> list[str]:

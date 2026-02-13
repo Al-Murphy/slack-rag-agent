@@ -50,6 +50,8 @@ def _extract_urls(text: str) -> list[str]:
 
 def _is_candidate_paper_url(url: str) -> bool:
     u = url.lower()
+    if "/articles?type=" in u or "/subjects/" in u or "/collections/" in u:
+        return False
     if ".pdf" in u:
         return True
     domains = (
@@ -216,6 +218,7 @@ async def ingest_channels(
             "ingested": 0,
             "duplicates": 0,
             "errors": 0,
+            "skipped_non_paper": 0,
             "timing_ms": _new_timing_bucket(),
         }
     )
@@ -249,6 +252,8 @@ async def ingest_channels(
                         by_channel[channel_id]["duplicates"] += 1
                     elif r.get("processed"):
                         by_channel[channel_id]["ingested"] += 1
+                    elif r.get("reason") == "non_paper_link":
+                        by_channel[channel_id]["skipped_non_paper"] += 1
                     else:
                         by_channel[channel_id]["errors"] += 1
                 except Exception as exc:  # noqa: BLE001
@@ -282,6 +287,8 @@ async def ingest_channels(
                         by_channel[channel_id]["duplicates"] += 1
                     elif r.get("processed"):
                         by_channel[channel_id]["ingested"] += 1
+                    elif r.get("reason") == "non_paper_link":
+                        by_channel[channel_id]["skipped_non_paper"] += 1
                     else:
                         by_channel[channel_id]["errors"] += 1
         except Exception as exc:  # noqa: BLE001
@@ -306,6 +313,7 @@ async def ingest_channels(
     total_ingested = sum(v["ingested"] for v in by_channel.values())
     total_duplicates = sum(v["duplicates"] for v in by_channel.values())
     total_errors = sum(v["errors"] for v in by_channel.values())
+    total_skipped_non_paper = sum(v["skipped_non_paper"] for v in by_channel.values())
     total_pdf_discovered = sum(v["pdf_discovered"] for v in by_channel.values())
     total_link_discovered = sum(v["link_discovered"] for v in by_channel.values())
     total_messages_scanned = sum(v["messages_scanned"] for v in by_channel.values())
@@ -325,6 +333,7 @@ async def ingest_channels(
             "ingested": total_ingested,
             "duplicates": total_duplicates,
             "errors": total_errors,
+            "skipped_non_paper": total_skipped_non_paper,
             "duration_ms": duration,
             "timing_ms": _rounded_timing(total_timing),
         },

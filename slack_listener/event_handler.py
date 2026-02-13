@@ -8,7 +8,7 @@ from typing import Any
 
 from agent.fulltext_agent import ensure_full_text_for_paper
 from database.vector_store import document_exists_by_hash, insert_paper_into_db
-from processing.link_resolver import _extract_arxiv_id, _extract_doi
+from processing.link_resolver import _extract_arxiv_id, _extract_doi, paper_signal_score
 from processing.pdf_parser import parse_pdf_bytes
 from processing.structurer import extract_structured_sections
 from slack_listener.downloader import download_slack_file
@@ -187,6 +187,27 @@ async def process_slack_paper_url(url: str, source_ref: str, context_text: str =
         }
 
     full_text = resolution["full_text"]
+    paper_check = paper_signal_score(resolution.get("source_url", url), full_text)
+    if not bool(paper_check.get("is_paper")):
+        return {
+            "processed": False,
+            "reason": "non_paper_link",
+            "url": url,
+            "resolved_source_url": resolution.get("source_url", url),
+            "resolved_source_kind": resolution.get("source_kind", "unknown"),
+            "trace": resolution.get("trace", []),
+            "paper_check": paper_check,
+            "timing_ms": {
+                "total": round((time.perf_counter() - t_start) * 1000, 2),
+                "resolve_total": round(resolve_call_ms, 2),
+                "resolve_fetch": round(float(resolution_timing.get("fetch", 0.0)), 2),
+                "resolve_parse_pdf": round(float(resolution_timing.get("parse_pdf", 0.0)), 2),
+                "resolve_extract_html": round(float(resolution_timing.get("extract_html", 0.0)), 2),
+                "structure": 0.0,
+                "insert": 0.0,
+            },
+        }
+
     doc_hash = resolution["content_hash"]
     doc_id = f"slack:url:{doc_hash[:12]}"
 
