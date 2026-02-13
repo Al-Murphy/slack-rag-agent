@@ -653,7 +653,14 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
-        if (!res.ok) throw new Error(`Eval failed: ${res.status}`);
+        if (!res.ok) {
+          let detail = `Eval failed: ${res.status}`;
+          try {
+            const payload = await res.json();
+            if (payload?.detail) detail = typeof payload.detail === 'string' ? payload.detail : JSON.stringify(payload.detail);
+          } catch (_) {}
+          throw new Error(detail);
+        }
         return await res.json();
       }
 
@@ -867,7 +874,7 @@
         const progress = startProgressMessage('Running retrieval quality test...', false);
         try {
           const payload = await runRetrievalEval({
-            channel_id: channelRaw.trim() || null,
+            channel_id: channelRaw.trim(),
             days_back: Math.floor(daysBack),
             paraphrase_count: Math.floor(paraphraseCount),
             top_k: 5,

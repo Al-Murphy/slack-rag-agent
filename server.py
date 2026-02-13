@@ -185,8 +185,9 @@ async def search(q: str, top_k: int = 5) -> dict[str, Any]:
 
 @app.post("/eval/retrieval")
 async def eval_retrieval(body: RetrievalEvalRequest) -> dict[str, Any]:
+    channel_id = (body.channel_id or "").strip() or None
     return await run_retrieval_eval(
-        channel_id=body.channel_id,
+        channel_id=channel_id,
         days_back=body.days_back,
         paraphrase_count=body.paraphrase_count,
         top_k=body.top_k,
