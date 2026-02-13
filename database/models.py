@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import DateTime, Integer, String, Text
+from sqlalchemy import DateTime, Float, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -21,6 +21,21 @@ class Document(Base):
     source: Mapped[str] = mapped_column(String(64), default="slack")
     source_ref: Mapped[str] = mapped_column(String(255), default="")
     title: Mapped[str] = mapped_column(String(500), default="")
+    authors_json: Mapped[str] = mapped_column(Text, default="[]")
+    source_url: Mapped[str] = mapped_column(Text, default="")
+    summary_text: Mapped[str] = mapped_column(Text, default="")
+    summary_vector: Mapped[list[float] | None] = mapped_column(Vector(int(os.environ.get("EMBEDDING_DIM", "3072"))), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PaperRelation(Base):
+    __tablename__ = "paper_relations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source_doc_id: Mapped[str] = mapped_column(String(255), index=True)
+    target_doc_id: Mapped[str] = mapped_column(String(255), index=True)
+    score: Mapped[float] = mapped_column(Float)
+    reason: Mapped[str] = mapped_column(String(100), default="semantic_similarity")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

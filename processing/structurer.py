@@ -9,6 +9,7 @@ _SCHEMA = {
         "type": "object",
         "properties": {
             "title": {"type": "string"},
+            "authors": {"type": "array", "items": {"type": "string"}},
             "abstract": {"type": "string"},
             "methods": {"type": "string"},
             "results": {"type": "string"},
@@ -18,7 +19,7 @@ _SCHEMA = {
                 "items": {"type": "string"},
             },
         },
-        "required": ["title", "abstract", "methods", "results", "conclusion", "key_findings"],
+        "required": ["title", "authors", "abstract", "methods", "results", "conclusion", "key_findings"],
         "additionalProperties": False,
     },
 }
@@ -35,11 +36,26 @@ def _extract_by_header(text: str, header: str) -> str:
     return section.strip()[:6000]
 
 
+def _extract_authors_heuristic(text: str) -> list[str]:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for line in lines[1:8]:
+        lower = line.lower()
+        if any(k in lower for k in ("abstract", "introduction", "doi", "journal", "keywords")):
+            continue
+        # naive author-line heuristic: comma-separated names without sentence punctuation.
+        if "," in line and len(line) < 300 and "." not in line:
+            candidates = [a.strip() for a in line.split(",") if a.strip()]
+            if 1 <= len(candidates) <= 20:
+                return candidates[:20]
+    return []
+
+
 def heuristic_structure(text: str) -> dict:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     title = lines[0][:300] if lines else "Untitled"
     return {
         "title": title,
+        "authors": _extract_authors_heuristic(text),
         "abstract": _extract_by_header(text, "abstract"),
         "methods": _extract_by_header(text, "methods?|methodology"),
         "results": _extract_by_header(text, "results?|findings"),
@@ -58,8 +74,9 @@ async def extract_structured_sections(text: str) -> dict:
     heuristics = heuristic_structure(text)
     prompt = (
         "Extract this paper into strict JSON with fields: "
-        "title, abstract, methods, results, conclusion, key_findings. "
+        "title, authors, abstract, methods, results, conclusion, key_findings. "
         "Use the heuristic draft as a hint, but correct it when evidence suggests better sections. "
+        "Authors should be a list of author names. "
         "Be faithful to source text and avoid invented claims."
     )
 
@@ -99,14 +116,18 @@ async def extract_structured_sections(text: str) -> dict:
     except json.JSONDecodeError as exc:
         raise ValueError("Invalid JSON returned from structuring model") from exc
 
-    for key in ("title", "abstract", "methods", "results", "conclusion", "key_findings"):
+    for key in ("title", "authors", "abstract", "methods", "results", "conclusion", "key_findings"):
         if key not in data:
             raise ValueError(f"Missing required field in structured output: {key}")
 
     if not isinstance(data["key_findings"], list):
         raise ValueError("key_findings must be a list")
+    if not isinstance(data["authors"], list):
+        data["authors"] = []
 
     # Hybrid fallback if model misses sections on noisy PDFs.
+    if not data["authors"]:
+        data["authors"] = heuristics["authors"]
     if not data["abstract"].strip():
         data["abstract"] = heuristics["abstract"]
     if not data["methods"].strip():

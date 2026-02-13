@@ -23,6 +23,7 @@ async def _ingest_structured_document(
     structured: dict[str, Any],
     source: str,
     source_ref: str,
+    source_url: str = "",
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if document_exists_by_hash(doc_hash):
@@ -40,6 +41,7 @@ async def _ingest_structured_document(
         doc_hash=doc_hash,
         source=source,
         source_ref=source_ref,
+        source_url=source_url,
     )
     return {
         "processed": True,
@@ -111,6 +113,7 @@ async def process_slack_file_id(file_id: str, source_ref: str | None = None) -> 
         structured=structured,
         source="slack",
         source_ref=source_ref or file_info.get("permalink", file_id),
+        source_url=file_info.get("permalink", ""),
         extra={"file_id": file_id},
     )
     t_insert += (time.perf_counter() - t4) * 1000
@@ -197,6 +200,7 @@ async def process_slack_paper_url(url: str, source_ref: str, context_text: str =
         structured=structured,
         source="slack_link",
         source_ref=source_ref,
+        source_url=resolution.get("source_url", url),
         extra={
             "url": url,
             "resolved_source_url": resolution.get("source_url", url),

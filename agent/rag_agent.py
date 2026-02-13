@@ -11,7 +11,11 @@ from openai import AsyncOpenAI
 from agent.controller import answer_support_score, confidence_score, plan_query, rerank_chunks
 from agent.prompts import RAG_SYSTEM_PROMPT
 from agent.tools import build_context
-from database.vector_store import search_similar_chunks
+from database.vector_store import (
+    get_documents_by_doc_ids,
+    get_related_documents_for_doc_ids,
+    search_similar_chunks,
+)
 from processing.embeddings import get_embeddings
 
 logger = logging.getLogger(__name__)
@@ -25,9 +29,9 @@ def _fallback_response(reason: str, confidence: float) -> str:
     )
 
 
-async def generate_answer(query: str, relevant_chunks: list[Any]) -> str:
+async def generate_answer(query: str, relevant_chunks: list[Any], doc_lookup: dict[str, dict] | None = None) -> str:
     client = AsyncOpenAI()
-    context_text = build_context(relevant_chunks)
+    context_text = build_context(relevant_chunks, doc_lookup=doc_lookup)
     model = os.environ.get("OPENAI_MODEL_CHAT", "gpt-4o-mini")
 
     resp = await client.responses.create(
@@ -62,6 +66,10 @@ async def query_rag(query: str, top_k: int = 5) -> dict:
     ranked = rerank_chunks(query, chunks)
     selected_ranked = ranked[:top_k]
     selected_chunks = [c for c, _ in selected_ranked]
+    selected_doc_ids = [c.doc_id for c in selected_chunks]
+    doc_lookup = get_documents_by_doc_ids(selected_doc_ids)
+    related_map = get_related_documents_for_doc_ids(selected_doc_ids, per_doc_limit=5)
+
     conf = confidence_score(plan, selected_ranked)
     needs_fallback = len(selected_chunks) < plan.min_required_matches or conf < plan.confidence_threshold
 
@@ -70,7 +78,7 @@ async def query_rag(query: str, top_k: int = 5) -> dict:
         answer = _fallback_response(reason, conf)
         validator_score = 0.0
     else:
-        answer = await generate_answer(query, selected_chunks)
+        answer = await generate_answer(query, selected_chunks, doc_lookup=doc_lookup)
         validator_score = answer_support_score(answer, selected_ranked)
         if validator_score < 0.2:
             answer = _fallback_response("generated answer not strongly supported by retrieved context", conf)
@@ -96,14 +104,24 @@ async def query_rag(query: str, top_k: int = 5) -> dict:
                 "section": c.section,
                 "content": c.content,
                 "rerank_score": score,
+                "paper": doc_lookup.get(c.doc_id, {}),
+                "related_papers": related_map.get(c.doc_id, []),
             }
             for c, score in selected_ranked
+        ],
+        "papers": [
+            {
+                **doc,
+                "related_papers": related_map.get(doc_id, []),
+            }
+            for doc_id, doc in doc_lookup.items()
         ],
         "citations": [
             {
                 "chunk_id": c.id,
                 "doc_id": c.doc_id,
                 "section": c.section,
+                "paper": doc_lookup.get(c.doc_id, {}),
             }
             for c in selected_chunks[:3]
         ],

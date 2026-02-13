@@ -6,8 +6,11 @@
     <title>Slack RAG Chat</title>
     <style>
       :root {
-        --bg: #f5f7fb;
+        --bg: #f3f4f6;
         --panel: #ffffff;
+        --sidebar: #111827;
+        --sidebar-line: #1f2937;
+        --sidebar-text: #e5e7eb;
         --text: #111827;
         --muted: #6b7280;
         --line: #e5e7eb;
@@ -22,50 +25,87 @@
         margin: 0;
         font-family: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
         color: var(--text);
-        background: radial-gradient(circle at top right, #eef2ff 0%, var(--bg) 45%, #f8fafc 100%);
+        background: var(--bg);
         min-height: 100vh;
       }
 
-      .wrap {
-        max-width: 980px;
-        margin: 0 auto;
+      .app {
+        display: grid;
+        grid-template-columns: 280px 1fr;
         min-height: 100vh;
+      }
+
+      .sidebar {
+        background: linear-gradient(180deg, #0f172a 0%, var(--sidebar) 100%);
+        color: var(--sidebar-text);
+        border-right: 1px solid var(--sidebar-line);
         display: flex;
         flex-direction: column;
-        padding: 20px 16px;
+        padding: 12px;
       }
 
-      .topbar {
+      .sidebar .new-chat {
+        width: 100%;
+        height: 40px;
+        border-radius: 10px;
+        border: 1px solid #334155;
+        background: #1e293b;
+        color: #f8fafc;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .history {
+        margin-top: 12px;
+        overflow: auto;
         display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 14px;
-        gap: 12px;
+        flex-direction: column;
+        gap: 6px;
       }
 
-      .title {
-        font-weight: 700;
-        font-size: 18px;
-        letter-spacing: 0.01em;
-      }
-
-      .sub {
-        color: var(--muted);
+      .history-item {
+        width: 100%;
+        border: 1px solid transparent;
+        background: transparent;
+        color: #cbd5e1;
+        border-radius: 8px;
+        padding: 10px;
+        text-align: left;
+        cursor: pointer;
         font-size: 13px;
       }
 
-      .top-actions {
+      .history-item:hover { background: #1f2937; }
+      .history-item.active {
+        background: #243042;
+        border-color: #334155;
+        color: #f8fafc;
+      }
+
+      .main {
         display: flex;
-        gap: 8px;
+        flex-direction: column;
+        min-height: 100vh;
+      }
+
+      .topbar {
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--line);
+        background: #fff;
+        display: flex;
+        justify-content: space-between;
         align-items: center;
       }
+
+      .title { font-size: 16px; font-weight: 700; }
+      .sub { color: var(--muted); font-size: 12px; }
 
       .btn {
         border: 1px solid var(--line);
         background: var(--panel);
         color: var(--text);
         border-radius: 10px;
-        height: 38px;
+        height: 36px;
         padding: 0 12px;
         font-weight: 600;
         cursor: pointer;
@@ -82,6 +122,16 @@
         cursor: not-allowed;
       }
 
+      .chat-wrap {
+        max-width: 920px;
+        width: 100%;
+        margin: 0 auto;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+      }
+
       .chat {
         flex: 1;
         border: 1px solid var(--line);
@@ -89,7 +139,7 @@
         border-radius: 16px;
         padding: 18px;
         overflow: auto;
-        box-shadow: 0 12px 30px rgba(17, 24, 39, 0.06);
+        box-shadow: 0 10px 26px rgba(17, 24, 39, 0.05);
       }
 
       .msg {
@@ -118,13 +168,51 @@
         font-size: 12px;
       }
 
+      .attachments {
+        margin-top: 10px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .attach-card {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: #ffffff;
+        padding: 10px;
+      }
+
+      .attach-title {
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+
+      .attach-list {
+        display: grid;
+        gap: 5px;
+      }
+
+      .attach-link {
+        color: #0f4aa4;
+        font-size: 13px;
+        text-decoration: none;
+      }
+
+      .attach-link:hover {
+        text-decoration: underline;
+      }
+
+      .attach-sub {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
       .composer {
-        margin-top: 14px;
+        margin-top: 12px;
         border: 1px solid var(--line);
         background: var(--panel);
-        border-radius: 18px;
+        border-radius: 16px;
         padding: 10px;
-        box-shadow: 0 8px 24px rgba(17, 24, 39, 0.06);
       }
 
       .row {
@@ -146,35 +234,41 @@
         padding: 8px 10px;
       }
 
-      @media (max-width: 700px) {
-        .wrap { padding: 12px; }
-        .chat { border-radius: 12px; padding: 12px; }
-        .msg { max-width: 95%; }
+      @media (max-width: 980px) {
+        .app { grid-template-columns: 1fr; }
+        .sidebar { display: none; }
       }
     </style>
   </head>
   <body>
-    <main class="wrap">
-      <header class="topbar">
-        <div>
-          <div class="title">Slack RAG Chat</div>
-          <div class="sub">Query indexed papers with free text</div>
-        </div>
-        <div class="top-actions">
-          <button id="sync" class="btn" type="button">Update DB</button>
-        </div>
-      </header>
+    <main class="app">
+      <aside class="sidebar">
+        <button id="newChat" class="new-chat" type="button">+ New chat</button>
+        <div id="history" class="history"></div>
+      </aside>
 
-      <section id="chat" class="chat">
-        <div class="msg assistant">Ask a question about your indexed papers. I will answer using retrieved context and citations.</div>
+      <section class="main">
+        <header class="topbar">
+          <div>
+            <div class="title">Slack RAG Chat</div>
+            <div class="sub">Query indexed papers with free text</div>
+          </div>
+          <div>
+            <button id="sync" class="btn" type="button">Update DB</button>
+          </div>
+        </header>
+
+        <div class="chat-wrap">
+          <section id="chat" class="chat"></section>
+
+          <form id="composer" class="composer">
+            <div class="row">
+              <textarea id="input" placeholder="Message Slack RAG..." required></textarea>
+              <button id="send" class="btn primary" type="submit">Send</button>
+            </div>
+          </form>
+        </div>
       </section>
-
-      <form id="composer" class="composer">
-        <div class="row">
-          <textarea id="input" placeholder="Message Slack RAG..." required></textarea>
-          <button id="send" class="btn primary" type="submit">Send</button>
-        </div>
-      </form>
     </main>
 
     <script>
@@ -183,27 +277,232 @@
       const input = document.getElementById('input');
       const send = document.getElementById('send');
       const sync = document.getElementById('sync');
+      const newChatBtn = document.getElementById('newChat');
+      const historyEl = document.getElementById('history');
 
-      function addMessage(role, text, meta='') {
-        const el = document.createElement('div');
-        el.className = `msg ${role}`;
-        el.textContent = text;
-        if (meta) {
-          const m = document.createElement('div');
-          m.className = 'meta';
-          m.textContent = meta;
-          el.appendChild(m);
+      const STORAGE_KEY = 'slack_rag_chat_history_v1';
+      const MAX_HISTORY = 100;
+      let conversations = [];
+      let activeId = null;
+
+      function nowIso() { return new Date().toISOString(); }
+
+      function loadConversations() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          conversations = raw ? JSON.parse(raw) : [];
+          if (!Array.isArray(conversations)) conversations = [];
+        } catch {
+          conversations = [];
         }
-        chat.appendChild(el);
+      }
+
+      function saveConversations() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations.slice(0, MAX_HISTORY)));
+      }
+
+      function createConversation(initialMsg='New conversation') {
+        const id = `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const convo = { id, title: initialMsg, created_at: nowIso(), updated_at: nowIso(), messages: [] };
+        conversations.unshift(convo);
+        activeId = id;
+        saveConversations();
+        return convo;
+      }
+
+      function getActiveConversation() {
+        return conversations.find(c => c.id === activeId) || null;
+      }
+
+      function ensureActiveConversation() {
+        let convo = getActiveConversation();
+        if (!convo) {
+          convo = conversations[0] || createConversation();
+        }
+        return convo;
+      }
+
+      function setActiveConversation(id) {
+        activeId = id;
+        renderHistory();
+        renderChat();
+      }
+
+      function updateConversationTitle(convo, userText) {
+        if (!convo.title || convo.title === 'New conversation') {
+          convo.title = userText.slice(0, 60) || 'Conversation';
+        }
+      }
+
+      function addMessage(role, text, meta='', extra=null) {
+        const convo = ensureActiveConversation();
+        const message = { role, text, meta, extra, ts: nowIso() };
+        convo.messages.push(message);
+        convo.updated_at = nowIso();
+        saveConversations();
+        renderHistory();
+        renderChat();
+      }
+
+      function renderHistory() {
+        historyEl.innerHTML = '';
+        conversations.sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1));
+        for (const c of conversations) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = `history-item ${c.id === activeId ? 'active' : ''}`;
+          btn.textContent = c.title || 'Conversation';
+          btn.addEventListener('click', () => setActiveConversation(c.id));
+          historyEl.appendChild(btn);
+        }
+      }
+
+      function uniqueBy(items, keyFn) {
+        const seen = new Set();
+        const out = [];
+        for (const item of items) {
+          const key = keyFn(item);
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          out.push(item);
+        }
+        return out;
+      }
+
+      function extractAnswerArtifacts(data) {
+        const papers = Array.isArray(data.papers) ? data.papers : [];
+        const matches = Array.isArray(data.matches) ? data.matches : [];
+
+        const sourceCandidates = [];
+        for (const p of papers) {
+          if (p?.source_url) sourceCandidates.push({ title: p.title || p.doc_id || p.source_url, url: p.source_url });
+        }
+        for (const m of matches) {
+          const p = m?.paper || {};
+          if (p?.source_url) sourceCandidates.push({ title: p.title || p.doc_id || p.source_url, url: p.source_url });
+        }
+        const sources = uniqueBy(sourceCandidates, (x) => x.url).slice(0, 6);
+
+        const relatedCandidates = [];
+        for (const p of papers) {
+          const parentTitle = p.title || p.doc_id || 'Paper';
+          const rels = Array.isArray(p.related_papers) ? p.related_papers : [];
+          for (const r of rels) {
+            if (!r?.source_url) continue;
+            relatedCandidates.push({
+              title: r.title || r.doc_id || r.source_url,
+              url: r.source_url,
+              score: r.score,
+              from_title: parentTitle,
+            });
+          }
+        }
+        const related = uniqueBy(relatedCandidates, (x) => x.url).slice(0, 8);
+
+        return { sources, related };
+      }
+
+      function renderAttachments(container, extra) {
+        if (!extra) return;
+        const hasSources = Array.isArray(extra.sources) && extra.sources.length > 0;
+        const hasRelated = Array.isArray(extra.related) && extra.related.length > 0;
+        if (!hasSources && !hasRelated) return;
+
+        const wrap = document.createElement('div');
+        wrap.className = 'attachments';
+
+        if (hasSources) {
+          const card = document.createElement('div');
+          card.className = 'attach-card';
+          const title = document.createElement('div');
+          title.className = 'attach-title';
+          title.textContent = 'Sources';
+          card.appendChild(title);
+
+          const list = document.createElement('div');
+          list.className = 'attach-list';
+          for (const src of extra.sources) {
+            const a = document.createElement('a');
+            a.className = 'attach-link';
+            a.href = src.url;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.textContent = src.title || src.url;
+            list.appendChild(a);
+          }
+          card.appendChild(list);
+          wrap.appendChild(card);
+        }
+
+        if (hasRelated) {
+          const card = document.createElement('div');
+          card.className = 'attach-card';
+          const title = document.createElement('div');
+          title.className = 'attach-title';
+          title.textContent = 'Related papers';
+          card.appendChild(title);
+
+          const list = document.createElement('div');
+          list.className = 'attach-list';
+          for (const rel of extra.related) {
+            const a = document.createElement('a');
+            a.className = 'attach-link';
+            a.href = rel.url;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.textContent = rel.title || rel.url;
+            list.appendChild(a);
+
+            const sub = document.createElement('div');
+            sub.className = 'attach-sub';
+            const scoreText = typeof rel.score === 'number' ? `score=${rel.score.toFixed(2)}` : '';
+            sub.textContent = [rel.from_title, scoreText].filter(Boolean).join(' · ');
+            list.appendChild(sub);
+          }
+          card.appendChild(list);
+          wrap.appendChild(card);
+        }
+
+        container.appendChild(wrap);
+      }
+
+      function renderChat() {
+        const convo = ensureActiveConversation();
+        chat.innerHTML = '';
+
+        const msgs = convo.messages.length
+          ? convo.messages
+          : [{ role: 'assistant', text: 'Ask a question about indexed papers. Use "Update DB" to ingest new items since the last run.' }];
+
+        for (const m of msgs) {
+          const el = document.createElement('div');
+          el.className = `msg ${m.role}`;
+
+          const body = document.createElement('div');
+          body.textContent = m.text;
+          el.appendChild(body);
+
+          if (m.meta) {
+            const meta = document.createElement('div');
+            meta.className = 'meta';
+            meta.textContent = m.meta;
+            el.appendChild(meta);
+          }
+
+          if (m.role === 'assistant') {
+            renderAttachments(el, m.extra || null);
+          }
+
+          chat.appendChild(el);
+        }
+
         chat.scrollTop = chat.scrollHeight;
       }
 
       async function ask(q) {
         const url = `/query?q=${encodeURIComponent(q)}&top_k=5`;
         const res = await fetch(url);
-        if (!res.ok) {
-          throw new Error(`Request failed: ${res.status}`);
-        }
+        if (!res.ok) throw new Error(`Request failed: ${res.status}`);
         return await res.json();
       }
 
@@ -213,9 +512,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({})
         });
-        if (!res.ok) {
-          throw new Error(`Update failed: ${res.status}`);
-        }
+        if (!res.ok) throw new Error(`Update failed: ${res.status}`);
         return await res.json();
       }
 
@@ -232,6 +529,13 @@
         }
       });
 
+      newChatBtn.addEventListener('click', () => {
+        createConversation();
+        renderHistory();
+        renderChat();
+        input.focus();
+      });
+
       sync.addEventListener('click', async () => {
         sync.disabled = true;
         addMessage('assistant', 'Updating DB from Slack since the last run...');
@@ -241,7 +545,6 @@
           const m = r.metrics || {};
           const byChannel = r.by_channel || {};
           const touched = Object.entries(byChannel).filter(([, s]) => (s.ingested || 0) > 0 || (s.duplicates || 0) > 0 || (s.errors || 0) > 0).length;
-
           addMessage(
             'assistant',
             'Database update completed.',
@@ -259,6 +562,8 @@
         const q = input.value.trim();
         if (!q) return;
 
+        const convo = ensureActiveConversation();
+        updateConversationTitle(convo, q);
         addMessage('user', q);
         input.value = '';
         autoGrow();
@@ -269,7 +574,17 @@
           const answer = data.answer || 'No answer generated.';
           const n = data.matches?.length ?? 0;
           const latency = data.metrics?.latency_ms?.total ?? '-';
-          addMessage('assistant', answer, `${n} matches · ${latency} ms`);
+
+          const papers = data.papers || [];
+          const topPapers = papers.slice(0, 3).map(p => {
+            const title = p.title || p.doc_id;
+            const authors = (p.authors || []).slice(0, 3).join(', ');
+            return authors ? `${title} (${authors})` : title;
+          });
+
+          const meta = `${n} matches · ${latency} ms${topPapers.length ? ' · papers: ' + topPapers.join(' | ') : ''}`;
+          const artifacts = extractAnswerArtifacts(data);
+          addMessage('assistant', answer, meta, artifacts);
         } catch (err) {
           addMessage('assistant', 'Error querying RAG backend.', String(err));
         } finally {
@@ -277,6 +592,13 @@
           input.focus();
         }
       });
+
+      loadConversations();
+      if (!conversations.length) createConversation();
+      activeId = conversations[0].id;
+      renderHistory();
+      renderChat();
+      autoGrow();
     </script>
   </body>
 </html>
