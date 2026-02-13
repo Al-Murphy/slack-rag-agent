@@ -173,7 +173,7 @@ def insert_paper_into_db(
             source_ref=source_ref,
             title=structured_json.get("title", "")[:500],
             authors_json=json.dumps(authors),
-            source_url=source_url or source_ref,
+            source_url=source_url or "",
             summary_text=summary_text,
             summary_vector=summary_vector,
         )

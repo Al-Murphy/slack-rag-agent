@@ -8,12 +8,34 @@ from typing import Any
 
 from agent.fulltext_agent import ensure_full_text_for_paper
 from database.vector_store import document_exists_by_hash, insert_paper_into_db
+from processing.link_resolver import _extract_arxiv_id, _extract_doi
 from processing.pdf_parser import parse_pdf_bytes
 from processing.structurer import extract_structured_sections
 from slack_listener.downloader import download_slack_file
 from slack_listener.slack_client import fetch_file_info, slack_auth_headers
 
 logger = logging.getLogger(__name__)
+
+
+def _canonical_paper_url_from_text(raw_text: str, file_info: dict[str, Any]) -> str:
+    text_blob = "\n".join(
+        [
+            raw_text[:5000],
+            str(file_info.get("title", "")),
+            str(file_info.get("name", "")),
+            str(file_info.get("initial_comment", {}).get("comment", "")),
+        ]
+    )
+
+    doi = _extract_doi(text_blob)
+    if doi:
+        return f"https://doi.org/{doi}"
+
+    arxiv_id = _extract_arxiv_id(text_blob)
+    if arxiv_id:
+        return f"https://arxiv.org/abs/{arxiv_id}"
+
+    return ""
 
 
 async def _ingest_structured_document(
@@ -107,14 +129,16 @@ async def process_slack_file_id(file_id: str, source_ref: str | None = None) -> 
 
     doc_id = f"slack:{file_id}:{doc_hash[:12]}"
     t4 = time.perf_counter()
+    canonical_source_url = _canonical_paper_url_from_text(raw_text, file_info)
+
     result = await _ingest_structured_document(
         doc_hash=doc_hash,
         doc_id=doc_id,
         structured=structured,
         source="slack",
         source_ref=source_ref or file_info.get("permalink", file_id),
-        source_url=file_info.get("permalink", ""),
-        extra={"file_id": file_id},
+        source_url=canonical_source_url,
+        extra={"file_id": file_id, "source_url_inferred": bool(canonical_source_url)},
     )
     t_insert += (time.perf_counter() - t4) * 1000
 
