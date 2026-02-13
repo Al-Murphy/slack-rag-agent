@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 load_dotenv()
 
 from agent.rag_agent import query_rag
-from database.vector_store import clear_database, get_state_value, init_db, set_state_value
+from database.vector_store import clear_database, get_database_stats, get_state_value, init_db, set_state_value
 from slack_listener.channel_crawler import ingest_channels
 from slack_listener.event_handler import handle_slack_event
 
@@ -124,6 +124,11 @@ async def search(q: str, top_k: int = 5) -> dict[str, Any]:
     return await query_rag(q, top_k=top_k)
 
 
+@app.get("/db/stats")
+def db_stats() -> dict[str, Any]:
+    return {"ok": True, "stats": get_database_stats()}
+
+
 @app.post("/slack/ingest/channels")
 async def ingest_from_channels(body: ChannelIngestRequest) -> dict[str, Any]:
     result = await ingest_channels(
@@ -144,7 +149,7 @@ async def ingest_from_channels(body: ChannelIngestRequest) -> dict[str, Any]:
 @app.post("/admin/clear-db")
 def admin_clear_db(body: ClearDbRequest) -> dict[str, Any]:
     if os.environ.get("ALLOW_DB_CLEAR", "false").lower() not in {"1", "true", "yes"}:
-        raise HTTPException(status_code=403, detail="DB clear is disabled. Set ALLOW_DB_CLEAR=true for dev use.")
+        raise HTTPException(status_code=403, detail="DB clear is disabled. Set ALLOW_DB_CLEAR=true in .env and restart the server.")
 
     required_phrase = os.environ.get("DB_CLEAR_CONFIRM_PHRASE", "CLEAR DB")
     if body.confirm_phrase.strip() != required_phrase:

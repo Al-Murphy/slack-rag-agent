@@ -273,6 +273,28 @@ def clear_database() -> dict[str, int]:
         "crawl_state_deleted": int(cs.rowcount or 0),
     }
 
+def get_database_stats() -> dict[str, Any]:
+    """Return high-level DB stats for UI diagnostics."""
+    with _engine().begin() as conn:
+        documents_count = int(conn.execute(text("SELECT COUNT(*) FROM documents")).scalar() or 0)
+        chunks_count = int(conn.execute(text("SELECT COUNT(*) FROM chunks")).scalar() or 0)
+        relations_count = int(conn.execute(text("SELECT COUNT(*) FROM paper_relations")).scalar() or 0)
+
+        size_bytes = None
+        try:
+            size_bytes = int(conn.execute(text("SELECT pg_database_size(current_database())")).scalar() or 0)
+        except Exception:
+            # Non-Postgres fallback.
+            size_bytes = None
+
+    return {
+        "documents_count": documents_count,
+        "chunks_count": chunks_count,
+        "relations_count": relations_count,
+        "database_size_bytes": size_bytes,
+    }
+
+
 def get_state_value(key: str) -> str | None:
     SessionLocal = _session_factory()
     with SessionLocal() as session:

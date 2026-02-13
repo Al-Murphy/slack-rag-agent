@@ -288,7 +288,7 @@
         <header class="topbar">
           <div>
             <div class="title">Slack RAG Chat</div>
-            <div class="sub">Query indexed papers with free text</div>
+            <div id="dbMeta" class="sub">Query indexed papers with free text · DB: loading...</div>
           </div>
           <div class="top-actions">
             <button id="sync" class="btn" type="button">Update DB</button>
@@ -320,6 +320,7 @@
       const clearDb = document.getElementById('clearDb');
       const newChatBtn = document.getElementById('newChat');
       const historyEl = document.getElementById('history');
+      const dbMeta = document.getElementById('dbMeta');
 
       const STORAGE_KEY = 'slack_rag_chat_history_v1';
       const MAX_HISTORY = 100;
@@ -631,6 +632,31 @@
         return await res.json();
       }
 
+      async function getDbStats() {
+        const res = await fetch('/db/stats');
+        if (!res.ok) throw new Error(`DB stats failed: ${res.status}`);
+        return await res.json();
+      }
+
+      function formatBytes(bytes) {
+        if (bytes === null || bytes === undefined || Number.isNaN(Number(bytes))) return 'n/a';
+        const n = Number(bytes);
+        if (n < 1024) return `${n} B`;
+        if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+        if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+        return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+      }
+
+      async function refreshDbMeta() {
+        try {
+          const payload = await getDbStats();
+          const st = payload.stats || {};
+          dbMeta.textContent = `Query indexed papers with free text · DB: ${formatBytes(st.database_size_bytes)} · docs=${st.documents_count ?? 0} · chunks=${st.chunks_count ?? 0}`;
+        } catch (_) {
+          dbMeta.textContent = 'Query indexed papers with free text · DB: unavailable';
+        }
+      }
+
       function startProgressMessage(label) {
         const startedAt = Date.now();
         let percent = 2;
@@ -693,6 +719,7 @@
           const m = r.metrics || {};
           const byChannel = r.by_channel || {};
           const touched = Object.entries(byChannel).filter(([, s]) => (s.ingested || 0) > 0 || (s.duplicates || 0) > 0 || (s.errors || 0) > 0).length;
+          await refreshDbMeta();
           progress.done(
             'Database update completed.',
             `messages_scanned=${m.messages_scanned ?? 0}, links_found=${m.link_discovered ?? 0}, pdfs_found=${m.pdf_discovered ?? 0}, ingested=${m.ingested ?? 0}, duplicates=${m.duplicates ?? 0}, errors=${m.errors ?? 0}, channels_touched=${touched}, duration=${m.duration_ms ?? '-'} ms`
@@ -721,6 +748,7 @@
           const m = payload.metrics || {};
           const byChannel = payload.by_channel || {};
           const touched = Object.entries(byChannel).filter(([, s]) => (s.ingested || 0) > 0 || (s.duplicates || 0) > 0 || (s.errors || 0) > 0).length;
+          await refreshDbMeta();
           progress.done(
             'Window scrape completed.',
             `window=${parsed.value} ${parsed.unit} (${parsed.days_back} days), messages_scanned=${m.messages_scanned ?? 0}, links_found=${m.link_discovered ?? 0}, pdfs_found=${m.pdf_discovered ?? 0}, ingested=${m.ingested ?? 0}, duplicates=${m.duplicates ?? 0}, errors=${m.errors ?? 0}, channels_scanned=${payload.channels_scanned ?? '-'}, channels_touched=${touched}, duration=${m.duration_ms ?? '-'} ms`
@@ -748,6 +776,7 @@
         try {
           const payload = await runClearDb(phrase.trim());
           const d = payload.deleted || {};
+          await refreshDbMeta();
           progress.done(
             'Database cleared.',
             `documents_deleted=${d.documents_deleted ?? 0}, chunks_deleted=${d.chunks_deleted ?? 0}, paper_relations_deleted=${d.paper_relations_deleted ?? 0}, crawl_state_deleted=${d.crawl_state_deleted ?? 0}`
@@ -801,6 +830,7 @@
       renderHistory();
       renderChat();
       autoGrow();
+      refreshDbMeta();
     </script>
   </body>
 </html>
