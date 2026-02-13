@@ -100,6 +100,12 @@
       .title { font-size: 16px; font-weight: 700; }
       .sub { color: var(--muted); font-size: 12px; }
 
+      .top-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
       .btn {
         border: 1px solid var(--line);
         background: var(--panel);
@@ -253,8 +259,9 @@
             <div class="title">Slack RAG Chat</div>
             <div class="sub">Query indexed papers with free text</div>
           </div>
-          <div>
+          <div class="top-actions">
             <button id="sync" class="btn" type="button">Update DB</button>
+            <button id="backfill" class="btn" type="button">Scrape Window</button>
           </div>
         </header>
 
@@ -277,6 +284,7 @@
       const input = document.getElementById('input');
       const send = document.getElementById('send');
       const sync = document.getElementById('sync');
+      const backfill = document.getElementById('backfill');
       const newChatBtn = document.getElementById('newChat');
       const historyEl = document.getElementById('history');
 
@@ -516,6 +524,26 @@
         return await res.json();
       }
 
+      function parseWindowInput(raw) {
+        const m = String(raw || '').trim().toLowerCase().match(/^(\d+)\s*(day|days|week|weeks|month|months|year|years)$/);
+        if (!m) return null;
+        const value = Number(m[1]);
+        const unit = m[2];
+        if (!Number.isFinite(value) || value < 1) return null;
+        const unitDays = unit.startsWith('day') ? 1 : unit.startsWith('week') ? 7 : unit.startsWith('month') ? 30 : 365;
+        return { value, unit, days_back: value * unitDays };
+      }
+
+      async function runWindowBackfill(daysBack) {
+        const res = await fetch('/slack/ingest/channels', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ days_back: daysBack, include_links: true })
+        });
+        if (!res.ok) throw new Error(`Window scrape failed: ${res.status}`);
+        return await res.json();
+      }
+
       function autoGrow() {
         input.style.height = 'auto';
         input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
@@ -554,6 +582,35 @@
           addMessage('assistant', 'DB update failed.', String(err));
         } finally {
           sync.disabled = false;
+        }
+      });
+
+      backfill.addEventListener('click', async () => {
+        const raw = window.prompt('Enter scrape window (examples: 3 days, 2 weeks, 1 month, 1 year):', '7 days');
+        if (raw === null) return;
+
+        const parsed = parseWindowInput(raw);
+        if (!parsed) {
+          addMessage('assistant', 'Invalid scrape window.', 'Use format like: 3 days, 2 weeks, 1 month, or 1 year.');
+          return;
+        }
+
+        backfill.disabled = true;
+        addMessage('assistant', `Running backfill scrape for ${parsed.value} ${parsed.unit}...`);
+        try {
+          const payload = await runWindowBackfill(parsed.days_back);
+          const m = payload.metrics || {};
+          const byChannel = payload.by_channel || {};
+          const touched = Object.entries(byChannel).filter(([, s]) => (s.ingested || 0) > 0 || (s.duplicates || 0) > 0 || (s.errors || 0) > 0).length;
+          addMessage(
+            'assistant',
+            'Window scrape completed.',
+            `window=${parsed.value} ${parsed.unit} (${parsed.days_back} days), ingested=${m.ingested ?? 0}, duplicates=${m.duplicates ?? 0}, errors=${m.errors ?? 0}, channels_scanned=${payload.channels_scanned ?? '-'}, channels_touched=${touched}, duration=${m.duration_ms ?? '-'} ms`
+          );
+        } catch (err) {
+          addMessage('assistant', 'Window scrape failed.', String(err));
+        } finally {
+          backfill.disabled = false;
         }
       });
 
