@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Slack RAG Agent Logo</title>
+  <desc id="desc">Stylized network node and DNA-inspired wave mark for genomics retrieval assistant.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e3a8a"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#60a5fa"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="12" y="12" width="232" height="232" rx="52" fill="url(#bg)"/>
+
+  <g fill="none" stroke="url(#accent)" stroke-width="8" stroke-linecap="round" opacity="0.95">
+    <path d="M52 92 C84 64, 116 120, 148 92 C180 64, 208 120, 204 152"/>
+    <path d="M52 124 C84 96, 116 152, 148 124 C180 96, 208 152, 204 184" opacity="0.78"/>
+  </g>
+
+  <g fill="#e2e8f0" opacity="0.95">
+    <circle cx="66" cy="182" r="11"/>
+    <circle cx="128" cy="176" r="11"/>
+    <circle cx="190" cy="170" r="11"/>
+  </g>
+
+  <g fill="none" stroke="#e2e8f0" stroke-width="4" opacity="0.85">
+    <path d="M77 180 L117 176"/>
+    <path d="M139 175 L179 171"/>
+  </g>
+
+  <text x="128" y="224" text-anchor="middle" fill="#dbeafe" font-size="26" font-family="IBM Plex Sans, Avenir Next, Segoe UI, sans-serif" font-weight="700">SRA</text>
+</svg>

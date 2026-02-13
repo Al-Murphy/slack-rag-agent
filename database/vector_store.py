@@ -265,14 +265,29 @@ def search_similar_chunks(query_embedding: Sequence[float], top_k: int = 5) -> l
 
 
 def _search_sparse_chunks(session, query: str, top_k: int) -> list[Chunk]:
-    # PostgreSQL full-text retrieval for exact/keyword-heavy queries.
+    # PostgreSQL full-text retrieval across chunk text + document metadata (title/authors/tldr).
     id_rows = session.execute(
         text(
             """
-            SELECT id
-            FROM chunks
-            WHERE to_tsvector('english', content) @@ plainto_tsquery('english', :q)
-            ORDER BY ts_rank_cd(to_tsvector('english', content), plainto_tsquery('english', :q)) DESC
+            SELECT
+                c.id,
+                (
+                    0.72 * ts_rank_cd(to_tsvector('english', c.content), plainto_tsquery('english', :q))
+                    + 0.28 * ts_rank_cd(
+                        to_tsvector(
+                            'english',
+                            COALESCE(d.title, '') || ' ' || COALESCE(d.authors_json, '') || ' ' || COALESCE(d.tldr_text, '')
+                        ),
+                        plainto_tsquery('english', :q)
+                    )
+                ) AS score
+            FROM chunks c
+            JOIN documents d ON d.doc_id = c.doc_id
+            WHERE to_tsvector(
+                'english',
+                c.content || ' ' || COALESCE(d.title, '') || ' ' || COALESCE(d.authors_json, '') || ' ' || COALESCE(d.tldr_text, '')
+            ) @@ plainto_tsquery('english', :q)
+            ORDER BY score DESC
             LIMIT :k
             """
         ),
@@ -375,8 +390,8 @@ def get_related_documents_for_doc_ids(doc_ids: Sequence[str], per_doc_limit: int
     return out
 
 
-def get_eval_seed_finding(channel_id: str | None = None, days_back: int = 30) -> dict[str, Any] | None:
-    """Pick a recent finding-like chunk from Slack-ingested papers for retrieval evaluation."""
+def get_eval_seed_bundle(channel_id: str | None = None, days_back: int = 30) -> dict[str, Any] | None:
+    """Pick one recent paper and return section-specific findings for retrieval evaluation."""
     SessionLocal = _session_factory()
     with SessionLocal() as session:
         params: dict[str, Any] = {"days_back": int(days_back)}
@@ -385,33 +400,102 @@ def get_eval_seed_finding(channel_id: str | None = None, days_back: int = 30) ->
             params["channel_like"] = f"channel:{channel_id}%"
             where_channel = "AND d.source_ref LIKE :channel_like"
 
-        row = session.execute(
+        doc_row = session.execute(
             text(
                 f"""
-                SELECT c.doc_id, c.content, c.section, d.title, d.source_url, d.tldr_text
-                FROM chunks c
-                JOIN documents d ON d.doc_id = c.doc_id
-                WHERE c.section IN ('key_findings','results','conclusion')
-                  AND length(c.content) >= 120
-                  AND d.created_at >= NOW() - (:days_back * INTERVAL '1 day')
+                SELECT
+                    d.doc_id,
+                    d.title,
+                    d.source_url,
+                    d.source_ref,
+                    d.tldr_text,
+                    MAX(CASE WHEN c.section IN ('results','key_findings') AND length(c.content) >= 120 THEN 1 ELSE 0 END) AS has_results,
+                    MAX(CASE WHEN c.section = 'methods' AND length(c.content) >= 120 THEN 1 ELSE 0 END) AS has_methods,
+                    MAX(CASE WHEN c.section = 'conclusion' AND length(c.content) >= 120 THEN 1 ELSE 0 END) AS has_conclusion
+                FROM documents d
+                LEFT JOIN chunks c ON d.doc_id = c.doc_id
+                WHERE d.created_at >= NOW() - (:days_back * INTERVAL '1 day')
                   {where_channel}
-                ORDER BY d.created_at DESC, c.id ASC
+                GROUP BY d.doc_id, d.title, d.source_url, d.source_ref, d.tldr_text, d.created_at
+                ORDER BY (
+                    MAX(CASE WHEN c.section IN ('results','key_findings') AND length(c.content) >= 120 THEN 1 ELSE 0 END) +
+                    MAX(CASE WHEN c.section = 'methods' AND length(c.content) >= 120 THEN 1 ELSE 0 END) +
+                    MAX(CASE WHEN c.section = 'conclusion' AND length(c.content) >= 120 THEN 1 ELSE 0 END) +
+                    CASE WHEN length(COALESCE(d.tldr_text, '')) >= 80 THEN 1 ELSE 0 END
+                ) DESC,
+                d.created_at DESC
                 LIMIT 1
                 """
             ),
             params,
         ).first()
 
-    if not row:
+        if not doc_row:
+            return None
+
+        chunk_rows = session.execute(
+            text(
+                """
+                SELECT section, content
+                FROM chunks
+                WHERE doc_id = :doc_id
+                  AND section IN ('results', 'key_findings', 'methods', 'conclusion')
+                  AND length(content) >= 120
+                ORDER BY id ASC
+                """
+            ),
+            {"doc_id": str(doc_row[0])},
+        ).all()
+
+    by_section: dict[str, str] = {}
+    for raw_section, raw_content in chunk_rows:
+        section = str(raw_section or "").strip().lower()
+        content = str(raw_content or "").strip()
+        if not section or not content:
+            continue
+        if section in {"results", "key_findings"} and "results" not in by_section:
+            by_section["results"] = content
+        elif section in {"methods", "conclusion"} and section not in by_section:
+            by_section[section] = content
+
+    tldr_text = str(doc_row[4] or "").strip()
+    if tldr_text:
+        by_section["tldr"] = tldr_text
+
+    ordered_sections = ["results", "methods", "conclusion", "tldr"]
+    seeds: list[dict[str, Any]] = []
+    for section in ordered_sections:
+        finding_text = by_section.get(section, "")
+        if finding_text:
+            seeds.append({"section": section, "finding_text": finding_text})
+
+    if not seeds:
         return None
 
     return {
-        "doc_id": str(row[0]),
-        "finding_text": str(row[1]),
-        "section": str(row[2]),
-        "title": str(row[3] or ""),
-        "source_url": str(row[4] or ""),
-        "tldr": str(row[5] or ""),
+        "doc_id": str(doc_row[0]),
+        "title": str(doc_row[1] or ""),
+        "source_url": str(doc_row[2] or ""),
+        "source_ref": str(doc_row[3] or ""),
+        "tldr": tldr_text,
+        "seeds": seeds,
+    }
+
+
+def get_eval_seed_finding(channel_id: str | None = None, days_back: int = 30) -> dict[str, Any] | None:
+    """Backward-compatible single-seed accessor for retrieval evaluation."""
+    bundle = get_eval_seed_bundle(channel_id=channel_id, days_back=days_back)
+    if not bundle:
+        return None
+    first = bundle["seeds"][0]
+    return {
+        "doc_id": bundle["doc_id"],
+        "finding_text": first["finding_text"],
+        "section": first["section"],
+        "title": bundle.get("title", ""),
+        "source_url": bundle.get("source_url", ""),
+        "source_ref": bundle.get("source_ref", ""),
+        "tldr": bundle.get("tldr", ""),
     }
 
 
@@ -447,6 +531,102 @@ def get_database_stats() -> dict[str, Any]:
         "chunks_count": chunks_count,
         "relations_count": relations_count,
         "database_size_bytes": size_bytes,
+    }
+
+
+def get_paper_graph_data(max_docs: int = 300, min_score: float = 0.0) -> dict[str, Any]:
+    max_docs = max(20, min(int(max_docs), 2000))
+    min_score = float(min_score)
+
+    SessionLocal = _session_factory()
+    with SessionLocal() as session:
+        docs = list(
+            session.execute(
+                select(Document)
+                .order_by(Document.created_at.desc())
+                .limit(max_docs)
+            ).scalars().all()
+        )
+
+        if not docs:
+            return {
+                "nodes": [],
+                "edges": [],
+                "meta": {"max_docs": max_docs, "min_score": min_score, "nodes": 0, "edges": 0},
+            }
+
+        doc_ids = [d.doc_id for d in docs]
+        doc_set = set(doc_ids)
+        rel_rows = list(
+            session.execute(
+                select(PaperRelation)
+                .where(
+                    PaperRelation.source_doc_id.in_(doc_ids),
+                    PaperRelation.target_doc_id.in_(doc_ids),
+                    PaperRelation.score >= min_score,
+                )
+            ).scalars().all()
+        )
+
+    nodes: list[dict[str, Any]] = []
+    node_by_id: dict[str, dict[str, Any]] = {}
+    for d in docs:
+        try:
+            authors = json.loads(d.authors_json or "[]")
+            if not isinstance(authors, list):
+                authors = []
+        except Exception:
+            authors = []
+
+        node = {
+            "id": d.doc_id,
+            "title": (d.title or d.doc_id or "Untitled")[:240],
+            "authors": authors,
+            "tldr": d.tldr_text or "",
+            "source_url": d.source_url or "",
+            "source_ref": d.source_ref or "",
+            "created_at": d.created_at.isoformat() if getattr(d, "created_at", None) else None,
+            "source": d.source or "",
+        }
+        nodes.append(node)
+        node_by_id[d.doc_id] = node
+
+    # De-duplicate bi-directional relation rows into a single undirected edge.
+    edge_map: dict[tuple[str, str], dict[str, Any]] = {}
+    for r in rel_rows:
+        s = str(r.source_doc_id)
+        t = str(r.target_doc_id)
+        if s not in doc_set or t not in doc_set or s == t:
+            continue
+        a, b = (s, t) if s < t else (t, s)
+        key = (a, b)
+        score = float(r.score or 0.0)
+        if key not in edge_map or score > float(edge_map[key].get("score", 0.0)):
+            edge_map[key] = {
+                "source": a,
+                "target": b,
+                "score": round(score, 4),
+                "reason": r.reason or "",
+            }
+
+    edges = sorted(edge_map.values(), key=lambda e: float(e.get("score", 0.0)), reverse=True)
+
+    degree: dict[str, int] = {nid: 0 for nid in node_by_id.keys()}
+    for e in edges:
+        degree[e["source"]] = degree.get(e["source"], 0) + 1
+        degree[e["target"]] = degree.get(e["target"], 0) + 1
+    for n in nodes:
+        n["degree"] = degree.get(n["id"], 0)
+
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "meta": {
+            "max_docs": max_docs,
+            "min_score": min_score,
+            "nodes": len(nodes),
+            "edges": len(edges),
+        },
     }
 
 

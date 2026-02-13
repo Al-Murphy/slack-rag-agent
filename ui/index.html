@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/ui/favicon.svg" />
     <title>Slack RAG Chat</title>
     <style>
       :root {
@@ -122,6 +123,19 @@
       }
 
       .title { font-size: 16px; font-weight: 700; }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .brand-logo {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        border: 1px solid #dbe3ef;
+        background: #ffffff;
+      }
       .sub { color: var(--muted); font-size: 12px; }
 
       .top-actions {
@@ -268,6 +282,255 @@
         font-size: 12px;
       }
 
+      .persona-modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.55);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 40;
+        padding: 20px;
+      }
+
+      .persona-modal.open {
+        display: flex;
+      }
+
+      .persona-panel {
+        width: min(1000px, 96vw);
+        max-height: 92vh;
+        overflow: auto;
+        border-radius: 16px;
+        border: 1px solid var(--line);
+        background: #ffffff;
+        box-shadow: 0 24px 60px rgba(17, 24, 39, 0.24);
+        padding: 16px;
+      }
+
+      .persona-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+
+      .persona-title {
+        font-size: 16px;
+        font-weight: 700;
+      }
+
+      .persona-close {
+        border: 1px solid var(--line);
+        background: #fff;
+        border-radius: 8px;
+        width: 32px;
+        height: 32px;
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+      }
+
+      .persona-help {
+        color: var(--muted);
+        font-size: 12px;
+        margin-bottom: 10px;
+      }
+
+      .persona-field {
+        margin-bottom: 10px;
+      }
+
+      .persona-label {
+        display: block;
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+
+      .persona-input,
+      .persona-refine-input {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px;
+        font: inherit;
+        color: var(--text);
+        background: #fff;
+        resize: vertical;
+      }
+
+      .persona-input {
+        min-height: 320px;
+      }
+
+      .persona-refine-input {
+        min-height: 100px;
+      }
+
+      .persona-row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      .persona-switch {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        color: var(--text);
+      }
+
+      .persona-actions {
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+        margin-top: 6px;
+      }
+
+
+      .graph-modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.55);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 45;
+        padding: 16px;
+      }
+
+      .graph-modal.open {
+        display: flex;
+      }
+
+      .graph-panel {
+        width: min(1280px, 98vw);
+        max-height: 94vh;
+        overflow: hidden;
+        border-radius: 16px;
+        border: 1px solid var(--line);
+        background: #fff;
+        box-shadow: 0 28px 70px rgba(17, 24, 39, 0.24);
+        display: grid;
+        grid-template-rows: auto auto 1fr;
+      }
+
+      .graph-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .graph-title {
+        font-size: 16px;
+        font-weight: 700;
+      }
+
+      .graph-controls {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .graph-controls input[type="number"] {
+        width: 94px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 6px 8px;
+      }
+
+      .graph-layout {
+        display: grid;
+        grid-template-columns: 1fr 360px;
+        min-height: 0;
+      }
+
+      .graph-viz-wrap {
+        position: relative;
+        min-height: 0;
+        border-right: 1px solid var(--line);
+      }
+
+      .graph-viz {
+        width: 100%;
+        height: 100%;
+        display: block;
+        background: radial-gradient(circle at 20% 20%, #f8fbff 0%, #f4f7fb 45%, #eef2f7 100%);
+      }
+
+      .graph-side {
+        display: grid;
+        grid-template-rows: auto auto 1fr;
+        min-height: 0;
+      }
+
+      .graph-meta {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line);
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .graph-details {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line);
+        max-height: 42%;
+        overflow: auto;
+      }
+
+      .graph-details-title {
+        font-weight: 700;
+        margin-bottom: 6px;
+      }
+
+      .graph-list {
+        overflow: auto;
+        padding: 8px;
+      }
+
+      .graph-list-item {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 8px;
+        margin-bottom: 8px;
+        cursor: pointer;
+        background: #fff;
+      }
+
+      .graph-list-item:hover {
+        background: #f8fafc;
+      }
+
+      .graph-list-title {
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .graph-list-sub {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 3px;
+      }
+
+      @media (max-width: 1180px) {
+        .graph-layout {
+          grid-template-columns: 1fr;
+          grid-template-rows: 54vh auto;
+        }
+
+        .graph-viz-wrap {
+          border-right: none;
+          border-bottom: 1px solid var(--line);
+        }
+      }
       .composer {
         margin-top: 12px;
         border: 1px solid var(--line);
@@ -311,13 +574,18 @@
       <section class="main">
         <header class="topbar">
           <div>
-            <div class="title">Slack RAG Chat</div>
+            <div class="brand">
+              <img src="/ui/logo.svg" alt="Slack RAG Agent" class="brand-logo" />
+              <div class="title">Slack RAG Agent</div>
+            </div>
             <div id="dbMeta" class="sub">Query indexed papers with free text · DB: loading...</div>
           </div>
           <div class="top-actions">
             <button id="sync" class="btn" type="button">Update DB</button>
             <button id="backfill" class="btn" type="button">Scrape Window</button>
             <button id="evalBtn" class="btn" type="button">Run Retrieval Test</button>
+            <button id="personaBtn" class="btn" type="button">Persona</button>
+            <button id="paperGraphBtn" class="btn" type="button">Paper Graph</button>
             <button id="clearDb" class="btn danger" type="button">Clear DB</button>
           </div>
         </header>
@@ -335,6 +603,64 @@
       </section>
     </main>
 
+    <div id="personaModal" class="persona-modal" aria-hidden="true">
+      <div class="persona-panel" role="dialog" aria-modal="true" aria-labelledby="personaTitle">
+        <div class="persona-header">
+          <div id="personaTitle" class="persona-title">Assistant Persona</div>
+          <button id="personaClose" class="persona-close" type="button" aria-label="Close">×</button>
+        </div>
+        <div class="persona-help">Edit the full genomics x AI profile here. Save directly, or save + refine with an instruction.</div>
+
+        <div class="persona-field">
+          <label class="persona-label" for="personaEditor">Persona profile</label>
+          <textarea id="personaEditor" class="persona-input" spellcheck="false"></textarea>
+        </div>
+
+        <div class="persona-field persona-row">
+          <label class="persona-switch" for="personaEnabled">
+            <input id="personaEnabled" type="checkbox" />
+            Enable persona in responses
+          </label>
+        </div>
+
+        <div class="persona-field">
+          <label class="persona-label" for="personaRefineInput">Optional refinement instruction</label>
+          <textarea id="personaRefineInput" class="persona-refine-input" placeholder="Example: Emphasize regulatory genomics benchmarks and avoid broad field claims unless directly supported by retrieved context."></textarea>
+        </div>
+
+        <div class="persona-actions">
+          <button id="personaCancel" class="btn" type="button">Cancel</button>
+          <button id="personaSave" class="btn" type="button">Save</button>
+          <button id="personaSaveRefine" class="btn primary" type="button">Save + Refine</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="paperGraphModal" class="graph-modal" aria-hidden="true">
+      <div class="graph-panel" role="dialog" aria-modal="true" aria-labelledby="paperGraphTitle">
+        <div class="graph-header">
+          <div id="paperGraphTitle" class="graph-title">Paper Relationship Graph</div>
+          <button id="paperGraphClose" class="persona-close" type="button" aria-label="Close">×</button>
+        </div>
+        <div class="graph-controls">
+          <label>Max docs <input id="paperGraphMaxDocs" type="number" min="20" max="2000" step="10" value="220" /></label>
+          <label>Min score <input id="paperGraphMinScore" type="number" min="0" max="1" step="0.05" value="0.2" /></label>
+          <button id="paperGraphRefresh" class="btn" type="button">Refresh</button>
+          <label class="persona-switch"><input id="paperGraphShowList" type="checkbox" checked /> Show paper list</label>
+        </div>
+        <div class="graph-layout">
+          <div class="graph-viz-wrap">
+            <svg id="paperGraphSvg" class="graph-viz" viewBox="0 0 920 620" preserveAspectRatio="xMidYMid meet"></svg>
+          </div>
+          <div class="graph-side">
+            <div id="paperGraphMeta" class="graph-meta">Load graph to inspect papers and relations.</div>
+            <div id="paperGraphDetails" class="graph-details">Click a paper node to view TLDR, authors, links, and related papers.</div>
+            <div id="paperGraphList" class="graph-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <script>
       const chat = document.getElementById('chat');
       const form = document.getElementById('composer');
@@ -344,9 +670,29 @@
       const backfill = document.getElementById('backfill');
       const clearDb = document.getElementById('clearDb');
       const evalBtn = document.getElementById('evalBtn');
+      const personaBtn = document.getElementById('personaBtn');
       const newChatBtn = document.getElementById('newChat');
       const historyEl = document.getElementById('history');
       const dbMeta = document.getElementById('dbMeta');
+      const personaModal = document.getElementById('personaModal');
+      const personaEditor = document.getElementById('personaEditor');
+      const personaEnabled = document.getElementById('personaEnabled');
+      const personaRefineInput = document.getElementById('personaRefineInput');
+      const personaSave = document.getElementById('personaSave');
+      const personaSaveRefine = document.getElementById('personaSaveRefine');
+      const personaCancel = document.getElementById('personaCancel');
+      const personaClose = document.getElementById('personaClose');
+      const paperGraphBtn = document.getElementById('paperGraphBtn');
+      const paperGraphModal = document.getElementById('paperGraphModal');
+      const paperGraphClose = document.getElementById('paperGraphClose');
+      const paperGraphMaxDocs = document.getElementById('paperGraphMaxDocs');
+      const paperGraphMinScore = document.getElementById('paperGraphMinScore');
+      const paperGraphRefresh = document.getElementById('paperGraphRefresh');
+      const paperGraphShowList = document.getElementById('paperGraphShowList');
+      const paperGraphSvg = document.getElementById('paperGraphSvg');
+      const paperGraphMeta = document.getElementById('paperGraphMeta');
+      const paperGraphDetails = document.getElementById('paperGraphDetails');
+      const paperGraphList = document.getElementById('paperGraphList');
 
       const STORAGE_KEY = 'slack_rag_chat_history_v1';
       const MAX_HISTORY = 100;
@@ -725,6 +1071,42 @@
         return await res.json();
       }
 
+      async function getPersona() {
+        const res = await fetch('/agent/persona');
+        if (!res.ok) throw new Error(`Persona fetch failed: ${res.status}`);
+        return await res.json();
+      }
+
+      async function updatePersona(payload) {
+        const res = await fetch('/agent/persona', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error(`Persona update failed: ${res.status}`);
+        return await res.json();
+      }
+
+      async function refinePersona(payload) {
+        const res = await fetch('/agent/persona/refine', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error(`Persona refine failed: ${res.status}`);
+        return await res.json();
+      }
+
+      async function getPaperGraph(maxDocs, minScore) {
+        const q = new URLSearchParams({
+          max_docs: String(maxDocs),
+          min_score: String(minScore),
+        });
+        const res = await fetch(`/papers/graph?${q.toString()}`);
+        if (!res.ok) throw new Error(`Paper graph failed: ${res.status}`);
+        return await res.json();
+      }
+
       async function getDbStats() {
         const res = await fetch('/db/stats');
         if (!res.ok) throw new Error(`DB stats failed: ${res.status}`);
@@ -914,6 +1296,97 @@
         }
       });
 
+      function openPersonaModal() {
+        personaModal.classList.add('open');
+        personaModal.setAttribute('aria-hidden', 'false');
+        setTimeout(() => personaEditor.focus(), 0);
+      }
+
+      function closePersonaModal() {
+        personaModal.classList.remove('open');
+        personaModal.setAttribute('aria-hidden', 'true');
+      }
+
+      async function loadPersonaIntoModal() {
+        const current = await getPersona();
+        const persona = current.persona || {};
+        personaEditor.value = persona.profile || '';
+        personaEnabled.checked = persona.enabled !== false;
+        personaRefineInput.value = '';
+      }
+
+      async function savePersonaFromModal(withRefine = false) {
+        const profile = String(personaEditor.value || '');
+        const enabled = !!personaEnabled.checked;
+        const saved = await updatePersona({ profile, enabled });
+
+        let finalPersona = saved.persona || { profile, enabled };
+        const refineText = String(personaRefineInput.value || '').trim();
+        if (withRefine && refineText) {
+          const refined = await refinePersona({ instructions: refineText, enabled });
+          finalPersona = refined.persona || finalPersona;
+          personaEditor.value = finalPersona.profile || personaEditor.value;
+        }
+
+        const preview = String(finalPersona.profile || '').slice(0, 220);
+        addMessage(
+          'assistant',
+          withRefine ? 'Persona saved and refined.' : 'Persona saved.',
+          `enabled=${finalPersona.enabled ? 'true' : 'false'} · preview=${preview}${preview.length >= 220 ? '...' : ''}`
+        );
+      }
+
+      personaBtn.addEventListener('click', async () => {
+        personaBtn.disabled = true;
+        try {
+          await loadPersonaIntoModal();
+          openPersonaModal();
+        } catch (err) {
+          addMessage('assistant', 'Persona load failed.', String(err));
+        } finally {
+          personaBtn.disabled = false;
+        }
+      });
+
+      personaCancel.addEventListener('click', () => closePersonaModal());
+      personaClose.addEventListener('click', () => closePersonaModal());
+      personaModal.addEventListener('click', (e) => {
+        if (e.target === personaModal) closePersonaModal();
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && personaModal.classList.contains('open')) {
+          closePersonaModal();
+        }
+      });
+
+      personaSave.addEventListener('click', async () => {
+        personaSave.disabled = true;
+        personaSaveRefine.disabled = true;
+        try {
+          await savePersonaFromModal(false);
+          closePersonaModal();
+        } catch (err) {
+          addMessage('assistant', 'Persona save failed.', String(err));
+        } finally {
+          personaSave.disabled = false;
+          personaSaveRefine.disabled = false;
+        }
+      });
+
+      personaSaveRefine.addEventListener('click', async () => {
+        personaSave.disabled = true;
+        personaSaveRefine.disabled = true;
+        try {
+          await savePersonaFromModal(true);
+          closePersonaModal();
+        } catch (err) {
+          addMessage('assistant', 'Persona refine failed.', String(err));
+        } finally {
+          personaSave.disabled = false;
+          personaSaveRefine.disabled = false;
+        }
+      });
+
       evalBtn.addEventListener('click', async () => {
         const channelRaw = window.prompt('Optional channel ID to evaluate (leave blank for any):', '');
         if (channelRaw === null) return;
@@ -950,6 +1423,7 @@
           const seed = payload.seed || {};
           const q = payload.queries || [];
           const misses = q.filter(x => !x.hit).length;
+          const sectionMetrics = payload.section_metrics || {};
 
           const evalSummary = [
             `hit_rate@k=${m.hit_rate_at_k}`,
@@ -960,16 +1434,30 @@
 
           progress.done('Retrieval test completed.', evalSummary);
 
+          const sectionLines = Object.entries(sectionMetrics).map(([section, sm]) => (
+            `${section}: hit_rate@k=${sm.hit_rate_at_k}, mrr@k=${sm.mrr_at_k}, hits=${sm.hits}/${sm.total}`
+          ));
+
+          const sourceLabel = seed.source_url || seed.source_ref || 'n/a';
+          const testedSections = (seed.sections_tested || []).join(', ') || 'n/a';
+          const primaryFinding = (seed.finding_text || '').slice(0, 500);
+
           addMessage(
             'assistant',
             `Seed paper: ${seed.title || seed.doc_id || 'unknown'}
-Seed finding section: ${seed.section || 'n/a'}
-Seed finding: ${(seed.finding_text || '').slice(0, 500)}`,
-            `source=${seed.source_url || 'n/a'}`,
+Sections tested: ${testedSections}
+Primary seed section: ${seed.section || 'n/a'}
+Primary seed finding: ${primaryFinding}${sectionLines.length ? `
+
+Per-section metrics:
+${sectionLines.join('\n')}` : ''}`,
+            `source=${sourceLabel}`,
             {
               sources: seed.source_url
                 ? [{ title: seed.title || seed.doc_id || seed.source_url, url: seed.source_url, tldr: seed.tldr || '' }]
-                : [],
+                : (seed.source_ref && /^https?:\/\//i.test(seed.source_ref)
+                    ? [{ title: seed.title || seed.doc_id || seed.source_ref, url: seed.source_ref, tldr: seed.tldr || '' }]
+                    : []),
               related: [],
             }
           );
@@ -978,6 +1466,329 @@ Seed finding: ${(seed.finding_text || '').slice(0, 500)}`,
         } finally {
           evalBtn.disabled = false;
         }
+      });
+
+      function openPaperGraphModal() {
+        paperGraphModal.classList.add('open');
+        paperGraphModal.setAttribute('aria-hidden', 'false');
+      }
+
+      function closePaperGraphModal() {
+        paperGraphModal.classList.remove('open');
+        paperGraphModal.setAttribute('aria-hidden', 'true');
+      }
+
+      function computeGraphLayout(nodes, edges, width = 920, height = 620) {
+        const byId = new Map();
+        const out = nodes.map((n, i) => {
+          const angle = (Math.PI * 2 * i) / Math.max(1, nodes.length);
+          const r = Math.min(width, height) * 0.34;
+          const cx = (width / 2) + (r * Math.cos(angle));
+          const cy = (height / 2) + (r * Math.sin(angle));
+          const o = { ...n, x: cx, y: cy, vx: 0, vy: 0 };
+          byId.set(n.id, o);
+          return o;
+        });
+
+        const pairs = edges
+          .map((e) => ({ a: byId.get(e.source), b: byId.get(e.target), score: Number(e.score || 0) }))
+          .filter((e) => e.a && e.b);
+
+        const iterations = Math.min(320, 90 + out.length * 2);
+        for (let t = 0; t < iterations; t += 1) {
+          for (let i = 0; i < out.length; i += 1) {
+            for (let j = i + 1; j < out.length; j += 1) {
+              const a = out[i];
+              const b = out[j];
+              const dx = a.x - b.x;
+              const dy = a.y - b.y;
+              const d2 = Math.max(36, (dx * dx) + (dy * dy));
+              const f = 1300 / d2;
+              const fx = f * (dx / Math.sqrt(d2));
+              const fy = f * (dy / Math.sqrt(d2));
+              a.vx += fx; a.vy += fy;
+              b.vx -= fx; b.vy -= fy;
+            }
+          }
+
+          for (const e of pairs) {
+            const dx = e.b.x - e.a.x;
+            const dy = e.b.y - e.a.y;
+            const d = Math.max(1, Math.sqrt((dx * dx) + (dy * dy)));
+            const ideal = 90 - Math.min(35, e.score * 22);
+            const spring = 0.008 * (d - ideal);
+            const fx = spring * (dx / d);
+            const fy = spring * (dy / d);
+            e.a.vx += fx; e.a.vy += fy;
+            e.b.vx -= fx; e.b.vy -= fy;
+          }
+
+          for (const n of out) {
+            n.vx *= 0.82;
+            n.vy *= 0.82;
+            n.x += n.vx;
+            n.y += n.vy;
+            n.x = Math.max(26, Math.min(width - 26, n.x));
+            n.y = Math.max(24, Math.min(height - 24, n.y));
+          }
+        }
+
+        return out;
+      }
+
+      function firstHttpUrl(...values) {
+        for (const v of values) {
+          const s = String(v || '').trim();
+          if (!s) continue;
+          if (/^https?:\/\//i.test(s)) return s;
+          const m = s.match(/https?:\/\/[^\s)\]>"]+/i);
+          if (m && m[0]) return m[0];
+        }
+        return '';
+      }
+
+      function renderGraphDetails(node, allEdges, byId) {
+        const neighbors = [];
+        for (const e of allEdges) {
+          if (e.source === node.id) neighbors.push({ id: e.target, score: e.score, reason: e.reason });
+          else if (e.target === node.id) neighbors.push({ id: e.source, score: e.score, reason: e.reason });
+        }
+        neighbors.sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+
+        const authors = (node.authors || []).slice(0, 8).join(', ') || 'n/a';
+        const paperUrl = firstHttpUrl(node.source_url, node.source_ref);
+        const rawSourceUrl = String(node.source_url || '').trim();
+        const rawSourceRef = String(node.source_ref || '').trim();
+
+        paperGraphDetails.innerHTML = `
+          <div class="graph-details-title">${node.title || node.id}</div>
+          <div class="attach-sub">doc_id=${node.id}</div>
+          <div class="attach-sub">authors=${authors}</div>
+          <div class="attach-sub">degree=${node.degree || 0} · created_at=${node.created_at || 'n/a'}</div>
+          <div style="margin-top:8px; font-size:13px; line-height:1.45;">${(node.tldr || 'No TLDR available.').replace(/</g, '&lt;')}</div>
+          <div style="margin-top:8px; display:grid; gap:3px;">
+            ${paperUrl ? `<a class="attach-link" href="${paperUrl}" target="_blank" rel="noopener noreferrer">Open paper link</a>` : '<span class="attach-sub">No paper URL stored</span>'}
+            ${rawSourceUrl ? `<div class="attach-sub">source_url=${rawSourceUrl.replace(/</g, '&lt;')}</div>` : ''}
+            ${rawSourceRef ? `<div class="attach-sub">source_ref=${rawSourceRef.replace(/</g, '&lt;')}</div>` : ''}
+          </div>
+          <div style="margin-top:10px;" class="attach-sub">Top related papers:</div>
+          <div style="margin-top:4px; display:grid; gap:4px;">
+            ${neighbors.slice(0, 8).map(n => {
+              const t = (byId.get(n.id)?.title || n.id).replace(/</g, '&lt;');
+              return `<div class="attach-sub">• ${t} · score=${Number(n.score || 0).toFixed(2)}${n.reason ? ` · ${String(n.reason).replace(/</g, '&lt;')}` : ''}</div>`;
+            }).join('') || '<div class="attach-sub">No related links in current graph slice.</div>'}
+          </div>
+        `;
+      }
+
+      function renderPaperGraph(graph) {
+        const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+        const edges = Array.isArray(graph?.edges) ? graph.edges : [];
+        const meta = graph?.meta || {};
+
+        const width = 920;
+        const height = 620;
+        const laidOut = computeGraphLayout(nodes, edges, width, height);
+        const byId = new Map(laidOut.map((n) => [n.id, n]));
+
+        paperGraphMeta.textContent = `nodes=${nodes.length} · edges=${edges.length} · max_docs=${meta.max_docs ?? 'n/a'} · min_score=${meta.min_score ?? 'n/a'}`;
+        paperGraphSvg.innerHTML = '';
+
+        const NS = 'http://www.w3.org/2000/svg';
+        const gEdges = document.createElementNS(NS, 'g');
+        gEdges.setAttribute('stroke', '#94a3b8');
+        gEdges.setAttribute('stroke-opacity', '0.35');
+        const gNodes = document.createElementNS(NS, 'g');
+
+        const edgeRefs = [];
+        const nodeRefs = new Map();
+
+        const clampX = (x) => Math.max(26, Math.min(width - 26, x));
+        const clampY = (y) => Math.max(24, Math.min(height - 24, y));
+
+        const svgPoint = (evt) => {
+          const pt = paperGraphSvg.createSVGPoint();
+          pt.x = evt.clientX;
+          pt.y = evt.clientY;
+          const ctm = paperGraphSvg.getScreenCTM();
+          return ctm ? pt.matrixTransform(ctm.inverse()) : { x: 0, y: 0 };
+        };
+
+        const updateNodeVisual = (n) => {
+          const ref = nodeRefs.get(n.id);
+          if (!ref) return;
+          ref.circle.setAttribute('cx', String(n.x));
+          ref.circle.setAttribute('cy', String(n.y));
+          ref.label.setAttribute('x', String(n.x + ref.radius + 2));
+          ref.label.setAttribute('y', String(n.y + 3));
+        };
+
+        const updateConnectedEdges = (nodeId) => {
+          for (const r of edgeRefs) {
+            if (r.edge.source !== nodeId && r.edge.target !== nodeId) continue;
+            const a = byId.get(r.edge.source);
+            const b = byId.get(r.edge.target);
+            if (!a || !b) continue;
+            r.line.setAttribute('x1', String(a.x));
+            r.line.setAttribute('y1', String(a.y));
+            r.line.setAttribute('x2', String(b.x));
+            r.line.setAttribute('y2', String(b.y));
+          }
+        };
+
+        for (const e of edges) {
+          const a = byId.get(e.source);
+          const b = byId.get(e.target);
+          if (!a || !b) continue;
+          const line = document.createElementNS(NS, 'line');
+          line.setAttribute('x1', String(a.x));
+          line.setAttribute('y1', String(a.y));
+          line.setAttribute('x2', String(b.x));
+          line.setAttribute('y2', String(b.y));
+          line.setAttribute('stroke-width', String(Math.max(0.7, 0.7 + (Number(e.score || 0) * 2.1))));
+          gEdges.appendChild(line);
+          edgeRefs.push({ edge: e, line });
+        }
+
+        for (const n of laidOut) {
+          const group = document.createElementNS(NS, 'g');
+          group.style.cursor = 'grab';
+          group.style.touchAction = 'none';
+
+          const circle = document.createElementNS(NS, 'circle');
+          const radius = Math.max(5, Math.min(11, 5 + (Number(n.degree || 0) * 0.8)));
+          circle.setAttribute('cx', String(n.x));
+          circle.setAttribute('cy', String(n.y));
+          circle.setAttribute('r', String(radius));
+          circle.setAttribute('fill', '#2563eb');
+          circle.setAttribute('fill-opacity', '0.82');
+          circle.setAttribute('stroke', '#0f172a');
+          circle.setAttribute('stroke-width', '0.9');
+
+          const label = document.createElementNS(NS, 'text');
+          label.setAttribute('x', String(n.x + radius + 2));
+          label.setAttribute('y', String(n.y + 3));
+          label.setAttribute('font-size', '10');
+          label.setAttribute('fill', '#0f172a');
+          label.textContent = (n.title || n.id || '').slice(0, 44);
+
+          nodeRefs.set(n.id, { group, circle, label, radius });
+
+          let dragging = false;
+          let moved = false;
+          let dragOffsetX = 0;
+          let dragOffsetY = 0;
+
+          const onPointerMove = (ev) => {
+            if (!dragging) return;
+            const p = svgPoint(ev);
+            n.x = clampX(p.x - dragOffsetX);
+            n.y = clampY(p.y - dragOffsetY);
+            updateNodeVisual(n);
+            updateConnectedEdges(n.id);
+            moved = true;
+            ev.preventDefault();
+          };
+
+          const onPointerUp = (ev) => {
+            if (!dragging) return;
+            dragging = false;
+            group.style.cursor = 'grab';
+            window.removeEventListener('pointermove', onPointerMove);
+            window.removeEventListener('pointerup', onPointerUp);
+            window.removeEventListener('pointercancel', onPointerUp);
+            if (!moved) {
+              renderGraphDetails(n, edges, byId);
+            }
+            ev.preventDefault();
+          };
+
+          group.addEventListener('pointerdown', (ev) => {
+            const p = svgPoint(ev);
+            dragging = true;
+            moved = false;
+            dragOffsetX = p.x - n.x;
+            dragOffsetY = p.y - n.y;
+            group.style.cursor = 'grabbing';
+            if (group.setPointerCapture && ev.pointerId !== undefined) {
+              try { group.setPointerCapture(ev.pointerId); } catch (_) {}
+            }
+            window.addEventListener('pointermove', onPointerMove);
+            window.addEventListener('pointerup', onPointerUp);
+            window.addEventListener('pointercancel', onPointerUp);
+            ev.preventDefault();
+          });
+
+          group.appendChild(circle);
+          group.appendChild(label);
+          gNodes.appendChild(group);
+        }
+
+        paperGraphSvg.appendChild(gEdges);
+        paperGraphSvg.appendChild(gNodes);
+
+        const sorted = [...laidOut].sort((a, b) => Number(b.degree || 0) - Number(a.degree || 0));
+        paperGraphList.innerHTML = sorted.map((n) => {
+          const authors = (n.authors || []).slice(0, 3).join(', ');
+          return `
+            <div class="graph-list-item" data-doc-id="${n.id}">
+              <div class="graph-list-title">${(n.title || n.id).replace(/</g, '&lt;')}</div>
+              <div class="graph-list-sub">degree=${n.degree || 0}${authors ? ` · ${authors.replace(/</g, '&lt;')}` : ''}</div>
+            </div>
+          `;
+        }).join('');
+
+        paperGraphList.style.display = paperGraphShowList.checked ? 'block' : 'none';
+        paperGraphList.querySelectorAll('.graph-list-item').forEach((el) => {
+          el.addEventListener('click', () => {
+            const id = el.getAttribute('data-doc-id');
+            const node = id ? byId.get(id) : null;
+            if (node) renderGraphDetails(node, edges, byId);
+          });
+        });
+
+        if (sorted.length > 0) renderGraphDetails(sorted[0], edges, byId);
+        else paperGraphDetails.textContent = 'No papers found in graph.';
+      }
+
+      async function loadPaperGraph() {
+        const maxDocs = Math.max(20, Math.min(2000, Number(paperGraphMaxDocs.value || 220)));
+        const minScore = Math.max(0, Math.min(1, Number(paperGraphMinScore.value || 0)));
+        paperGraphMeta.textContent = 'Loading graph...';
+        const payload = await getPaperGraph(maxDocs, minScore);
+        renderPaperGraph(payload.graph || {});
+      }
+
+      paperGraphBtn.addEventListener('click', async () => {
+        paperGraphBtn.disabled = true;
+        try {
+          openPaperGraphModal();
+          await loadPaperGraph();
+        } catch (err) {
+          addMessage('assistant', 'Paper graph load failed.', String(err));
+        } finally {
+          paperGraphBtn.disabled = false;
+        }
+      });
+
+      paperGraphRefresh.addEventListener('click', async () => {
+        paperGraphRefresh.disabled = true;
+        try {
+          await loadPaperGraph();
+        } catch (err) {
+          addMessage('assistant', 'Paper graph refresh failed.', String(err));
+        } finally {
+          paperGraphRefresh.disabled = false;
+        }
+      });
+
+      paperGraphShowList.addEventListener('change', () => {
+        paperGraphList.style.display = paperGraphShowList.checked ? 'block' : 'none';
+      });
+
+      paperGraphClose.addEventListener('click', () => closePaperGraphModal());
+      paperGraphModal.addEventListener('click', (e) => {
+        if (e.target === paperGraphModal) closePaperGraphModal();
       });
 
       form.addEventListener('submit', async (e) => {

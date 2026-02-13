@@ -7,7 +7,7 @@ from typing import Any
 from openai import AsyncOpenAI
 
 from agent.controller import rerank_chunks
-from database.vector_store import get_eval_seed_finding, search_hybrid_chunks
+from database.vector_store import get_eval_seed_bundle, search_hybrid_chunks
 from processing.embeddings import get_embeddings
 
 
@@ -68,7 +68,7 @@ async def run_retrieval_eval(
     paraphrase_count: int = 5,
     top_k: int = 5,
 ) -> dict[str, Any]:
-    seed = get_eval_seed_finding(channel_id=channel_id, days_back=days_back)
+    seed = get_eval_seed_bundle(channel_id=channel_id, days_back=days_back)
     if not seed:
         return {
             "ok": False,
@@ -76,45 +76,72 @@ async def run_retrieval_eval(
             "message": "No recent finding-like chunk found for evaluation. Try a wider window or check ingestion.",
         }
 
-    finding = seed["finding_text"]
     doc_id = seed["doc_id"]
-
-    paraphrases = await _generate_paraphrases(finding, paraphrase_count)
-    queries = [finding] + paraphrases
+    seed_items = seed.get("seeds", [])
 
     eval_rows: list[dict[str, Any]] = []
-    hits = 0
-    reciprocal_ranks: list[float] = []
+    total_hits = 0
+    total_rr_sum = 0.0
+    section_metrics: dict[str, dict[str, Any]] = {}
 
-    for q in queries:
-        q_vec = get_embeddings(q)
-        candidates = search_hybrid_chunks(query=q, query_embedding=q_vec, top_k=max(60, top_k * 10), vector_k=80, sparse_k=80)
-        ranked = rerank_chunks(q, candidates)
-        top = ranked[:top_k]
+    for item in seed_items:
+        section = str(item.get("section", "") or "unknown")
+        finding = str(item.get("finding_text", "") or "").strip()
+        if not finding:
+            continue
 
-        rank = None
-        for i, (chunk, _) in enumerate(top, start=1):
-            if chunk.doc_id == doc_id:
-                rank = i
-                break
+        paraphrases = await _generate_paraphrases(finding, paraphrase_count)
+        queries = [finding] + paraphrases
 
-        hit = rank is not None
-        if hit:
-            hits += 1
-            reciprocal_ranks.append(1.0 / float(rank))
+        section_hits = 0
+        section_rr_sum = 0.0
+        section_total = 0
 
-        eval_rows.append(
-            {
-                "query": q,
-                "hit": hit,
-                "rank": rank,
-                "top_doc_ids": [c.doc_id for c, _ in top],
-            }
-        )
+        for q in queries:
+            q_vec = get_embeddings(q)
+            candidates = search_hybrid_chunks(query=q, query_embedding=q_vec, top_k=max(60, top_k * 10), vector_k=80, sparse_k=80)
+            ranked = rerank_chunks(q, candidates)
+            top = ranked[:top_k]
+
+            rank = None
+            for i, (chunk, _) in enumerate(top, start=1):
+                if chunk.doc_id == doc_id:
+                    rank = i
+                    break
+
+            hit = rank is not None
+            if hit:
+                section_hits += 1
+                rr = 1.0 / float(rank)
+                section_rr_sum += rr
+                total_rr_sum += rr
+                total_hits += 1
+
+            section_total += 1
+            eval_rows.append(
+                {
+                    "section": section,
+                    "query": q,
+                    "hit": hit,
+                    "rank": rank,
+                    "top_doc_ids": [c.doc_id for c, _ in top],
+                }
+            )
+
+        hit_rate = (section_hits / section_total) if section_total else 0.0
+        mrr = (section_rr_sum / section_total) if section_total else 0.0
+        section_metrics[section] = {
+            "hit_rate_at_k": round(hit_rate, 4),
+            "mrr_at_k": round(mrr, 4),
+            "hits": section_hits,
+            "total": section_total,
+        }
 
     total = len(eval_rows)
-    hit_rate = (hits / total) if total else 0.0
-    mrr = (sum(reciprocal_ranks) / total) if total else 0.0
+    hit_rate = (total_hits / total) if total else 0.0
+    mrr = (total_rr_sum / total) if total else 0.0
+
+    primary = seed_items[0] if seed_items else {"section": "", "finding_text": ""}
 
     return {
         "ok": True,
@@ -122,9 +149,12 @@ async def run_retrieval_eval(
             "doc_id": doc_id,
             "title": seed.get("title", ""),
             "source_url": seed.get("source_url", ""),
-            "section": seed.get("section", ""),
-            "finding_text": finding,
+            "source_ref": seed.get("source_ref", ""),
+            "section": primary.get("section", ""),
+            "finding_text": primary.get("finding_text", ""),
             "tldr": seed.get("tldr", ""),
+            "sections_tested": [str(x.get("section", "")) for x in seed_items if x.get("section")],
+            "seed_findings": seed_items,
         },
         "config": {
             "channel_id": channel_id,
@@ -136,8 +166,9 @@ async def run_retrieval_eval(
         "metrics": {
             "hit_rate_at_k": round(hit_rate, 4),
             "mrr_at_k": round(mrr, 4),
-            "hits": hits,
+            "hits": total_hits,
             "total": total,
         },
+        "section_metrics": section_metrics,
         "queries": eval_rows,
     }

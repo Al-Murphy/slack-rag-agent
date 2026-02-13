@@ -19,8 +19,9 @@ from pydantic import BaseModel, Field
 load_dotenv()
 
 from agent.rag_agent import query_rag
+from agent.prompts import DEFAULT_PERSONA_PROFILE, refine_persona_profile
 from agent.testing_agent import run_retrieval_eval
-from database.vector_store import clear_database, get_database_stats, get_state_value, init_db, set_state_value
+from database.vector_store import clear_database, get_database_stats, get_paper_graph_data, get_state_value, init_db, set_state_value
 from slack_listener.channel_crawler import ingest_channels
 from slack_listener.event_handler import handle_slack_event
 
@@ -32,6 +33,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 INCREMENTAL_CRAWL_STATE_KEY = "last_incremental_crawl_ts"
+PERSONA_PROFILE_STATE_KEY = "chat_persona_profile"
+PERSONA_ENABLED_STATE_KEY = "chat_persona_enabled"
 CRAWL_JOBS: dict[str, dict[str, Any]] = {}
 
 
@@ -78,10 +81,26 @@ class RetrievalEvalRequest(BaseModel):
     top_k: int = Field(default=5, ge=1, le=20)
 
 
+class PersonaUpdateRequest(BaseModel):
+    profile: str = Field(default="")
+    enabled: bool = True
+
+
+class PersonaRefineRequest(BaseModel):
+    instructions: str = Field(min_length=1)
+    enabled: bool | None = None
+
+
 @app.on_event("startup")
 def startup() -> None:
     logger.info("Initializing database schema")
     init_db()
+
+    if get_state_value(PERSONA_PROFILE_STATE_KEY) is None:
+        set_state_value(PERSONA_PROFILE_STATE_KEY, DEFAULT_PERSONA_PROFILE)
+    if get_state_value(PERSONA_ENABLED_STATE_KEY) is None:
+        set_state_value(PERSONA_ENABLED_STATE_KEY, "true")
+
     logger.info("Startup complete")
 
 
@@ -180,7 +199,16 @@ async def search(q: str, top_k: int = 5) -> dict[str, Any]:
     if top_k < 1 or top_k > 20:
         raise HTTPException(status_code=400, detail="top_k must be between 1 and 20")
 
-    return await query_rag(q, top_k=top_k)
+    persona_profile = get_state_value(PERSONA_PROFILE_STATE_KEY) or DEFAULT_PERSONA_PROFILE
+    persona_enabled_raw = (get_state_value(PERSONA_ENABLED_STATE_KEY) or "true").strip().lower()
+    persona_enabled = persona_enabled_raw in {"1", "true", "yes", "on"}
+
+    return await query_rag(
+        q,
+        top_k=top_k,
+        persona_profile=persona_profile,
+        persona_enabled=persona_enabled,
+    )
 
 
 @app.post("/eval/retrieval")
@@ -197,6 +225,17 @@ async def eval_retrieval(body: RetrievalEvalRequest) -> dict[str, Any]:
 @app.get("/db/stats")
 def db_stats() -> dict[str, Any]:
     return {"ok": True, "stats": get_database_stats()}
+
+
+@app.get("/papers/graph")
+def papers_graph(max_docs: int = 300, min_score: float = 0.0) -> dict[str, Any]:
+    if max_docs < 20 or max_docs > 2000:
+        raise HTTPException(status_code=400, detail="max_docs must be between 20 and 2000")
+    if min_score < 0.0 or min_score > 1.0:
+        raise HTTPException(status_code=400, detail="min_score must be between 0.0 and 1.0")
+
+    graph = get_paper_graph_data(max_docs=max_docs, min_score=min_score)
+    return {"ok": True, "graph": graph}
 
 
 @app.post("/slack/ingest/channels")
@@ -299,3 +338,34 @@ async def crawl_incremental(body: IncrementalCrawlRequest) -> dict[str, Any]:
         "oldest_ts_used": oldest_ts_used,
         "result": result,
     }
+
+
+@app.get("/agent/persona")
+def get_agent_persona() -> dict[str, Any]:
+    profile = get_state_value(PERSONA_PROFILE_STATE_KEY) or DEFAULT_PERSONA_PROFILE
+    enabled_raw = (get_state_value(PERSONA_ENABLED_STATE_KEY) or "true").strip().lower()
+    enabled = enabled_raw in {"1", "true", "yes", "on"}
+    return {"ok": True, "persona": {"profile": profile, "enabled": enabled}}
+
+
+@app.put("/agent/persona")
+def update_agent_persona(body: PersonaUpdateRequest) -> dict[str, Any]:
+    profile = (body.profile or "").strip() or DEFAULT_PERSONA_PROFILE
+    set_state_value(PERSONA_PROFILE_STATE_KEY, profile)
+    set_state_value(PERSONA_ENABLED_STATE_KEY, "true" if body.enabled else "false")
+    return {"ok": True, "persona": {"profile": profile, "enabled": bool(body.enabled)}}
+
+
+@app.post("/agent/persona/refine")
+async def refine_agent_persona(body: PersonaRefineRequest) -> dict[str, Any]:
+    current = get_state_value(PERSONA_PROFILE_STATE_KEY) or DEFAULT_PERSONA_PROFILE
+    refined = await refine_persona_profile(current, body.instructions)
+    enabled = body.enabled
+    if enabled is None:
+        enabled_raw = (get_state_value(PERSONA_ENABLED_STATE_KEY) or "true").strip().lower()
+        enabled = enabled_raw in {"1", "true", "yes", "on"}
+
+    set_state_value(PERSONA_PROFILE_STATE_KEY, refined)
+    set_state_value(PERSONA_ENABLED_STATE_KEY, "true" if enabled else "false")
+
+    return {"ok": True, "persona": {"profile": refined, "enabled": bool(enabled)}}
