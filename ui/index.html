@@ -123,6 +123,12 @@
         color: #fff;
       }
 
+      .btn.danger {
+        border: 1px solid #fecaca;
+        background: #fff1f2;
+        color: #9f1239;
+      }
+
       .btn:disabled {
         opacity: 0.55;
         cursor: not-allowed;
@@ -287,6 +293,7 @@
           <div class="top-actions">
             <button id="sync" class="btn" type="button">Update DB</button>
             <button id="backfill" class="btn" type="button">Scrape Window</button>
+            <button id="clearDb" class="btn danger" type="button">Clear DB</button>
           </div>
         </header>
 
@@ -310,6 +317,7 @@
       const send = document.getElementById('send');
       const sync = document.getElementById('sync');
       const backfill = document.getElementById('backfill');
+      const clearDb = document.getElementById('clearDb');
       const newChatBtn = document.getElementById('newChat');
       const historyEl = document.getElementById('history');
 
@@ -606,6 +614,23 @@
         return await res.json();
       }
 
+      async function runClearDb(confirmPhrase) {
+        const res = await fetch('/admin/clear-db', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ confirm_phrase: confirmPhrase })
+        });
+        if (!res.ok) {
+          let detail = `Clear DB failed: ${res.status}`;
+          try {
+            const payload = await res.json();
+            if (payload?.detail) detail = String(payload.detail);
+          } catch (_) {}
+          throw new Error(detail);
+        }
+        return await res.json();
+      }
+
       function startProgressMessage(label) {
         const startedAt = Date.now();
         let percent = 2;
@@ -704,6 +729,33 @@
           progress.fail('Window scrape failed.', err);
         } finally {
           backfill.disabled = false;
+        }
+      });
+
+      clearDb.addEventListener('click', async () => {
+        const ok = window.confirm('This will permanently delete all indexed papers, chunks, relations, and crawl state. Continue?');
+        if (!ok) return;
+
+        const phrase = window.prompt('Type CLEAR DB to confirm destructive reset:', '');
+        if (phrase === null) return;
+        if (phrase.trim() !== 'CLEAR DB') {
+          addMessage('assistant', 'Clear DB cancelled.', 'Confirmation phrase did not match EXACTLY: CLEAR DB');
+          return;
+        }
+
+        clearDb.disabled = true;
+        const progress = startProgressMessage('Clearing database...');
+        try {
+          const payload = await runClearDb(phrase.trim());
+          const d = payload.deleted || {};
+          progress.done(
+            'Database cleared.',
+            `documents_deleted=${d.documents_deleted ?? 0}, chunks_deleted=${d.chunks_deleted ?? 0}, paper_relations_deleted=${d.paper_relations_deleted ?? 0}, crawl_state_deleted=${d.crawl_state_deleted ?? 0}`
+          );
+        } catch (err) {
+          progress.fail('Clear DB failed.', err);
+        } finally {
+          clearDb.disabled = false;
         }
       });
 

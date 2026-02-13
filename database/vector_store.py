@@ -256,6 +256,23 @@ def get_related_documents_for_doc_ids(doc_ids: Sequence[str], per_doc_limit: int
     return out
 
 
+
+
+def clear_database() -> dict[str, int]:
+    """Delete indexed data for development reset workflows."""
+    with _engine().begin() as conn:
+        pr = conn.execute(text("DELETE FROM paper_relations"))
+        ch = conn.execute(text("DELETE FROM chunks"))
+        dc = conn.execute(text("DELETE FROM documents"))
+        cs = conn.execute(text("DELETE FROM crawl_state"))
+
+    return {
+        "paper_relations_deleted": int(pr.rowcount or 0),
+        "chunks_deleted": int(ch.rowcount or 0),
+        "documents_deleted": int(dc.rowcount or 0),
+        "crawl_state_deleted": int(cs.rowcount or 0),
+    }
+
 def get_state_value(key: str) -> str | None:
     SessionLocal = _session_factory()
     with SessionLocal() as session:

@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 load_dotenv()
 
 from agent.rag_agent import query_rag
-from database.vector_store import get_state_value, init_db, set_state_value
+from database.vector_store import clear_database, get_state_value, init_db, set_state_value
 from slack_listener.channel_crawler import ingest_channels
 from slack_listener.event_handler import handle_slack_event
 
@@ -50,6 +50,10 @@ class IncrementalCrawlRequest(BaseModel):
     top_k_links_per_channel: int = Field(default=50, ge=1, le=500)
     link_concurrency_limit: int = Field(default=3, ge=1, le=20)
     initial_days_back: int = Field(default=1, ge=1, le=365)
+
+
+class ClearDbRequest(BaseModel):
+    confirm_phrase: str
 
 
 @app.on_event("startup")
@@ -134,6 +138,21 @@ async def ingest_from_channels(body: ChannelIngestRequest) -> dict[str, Any]:
     )
     logger.info("Channel crawler completed result_summary=%s", result.get("metrics"))
     return result
+
+
+
+@app.post("/admin/clear-db")
+def admin_clear_db(body: ClearDbRequest) -> dict[str, Any]:
+    if os.environ.get("ALLOW_DB_CLEAR", "false").lower() not in {"1", "true", "yes"}:
+        raise HTTPException(status_code=403, detail="DB clear is disabled. Set ALLOW_DB_CLEAR=true for dev use.")
+
+    required_phrase = os.environ.get("DB_CLEAR_CONFIRM_PHRASE", "CLEAR DB")
+    if body.confirm_phrase.strip() != required_phrase:
+        raise HTTPException(status_code=400, detail="Invalid confirmation phrase")
+
+    deleted = clear_database()
+    logger.warning("Database cleared via admin endpoint deleted=%s", deleted)
+    return {"ok": True, "deleted": deleted}
 
 
 @app.get("/crawl/incremental/status")
