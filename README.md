@@ -1,97 +1,129 @@
-# Slack RAG Agent (MVP)
+# Slack RAG Agent
 
-Minimal Slack-to-RAG starter for:
-- Slack file ingestion (`file_shared`)
-- PDF parsing + structured extraction
-- Embedding + pgvector storage
-- Query endpoint with retrieval + answer generation
-- Planner/controller orchestration with confidence fallback
-- Deduplication by document hash and low-information filtering
-- Grounded answers with citations and validation scoring
+Slack-to-RAG system for ingesting papers from Slack, structuring content, storing vectors in Postgres/pgvector, and answering grounded research questions with citations.
 
-## Agentic AI approach
+## What It Does
 
-This system uses specialized agents in a single pipeline:
-- **Ingestion agent**: scans Slack channels, ingests PDFs and paper links, resolves full text, deduplicates, and stores chunks.
-- **Retrieval agent**: embeds query + retrieves candidate chunks from pgvector.
-- **Controller agent**: plans, reranks, checks confidence, and decides answer vs fallback.
-- **Generation agent**: produces grounded answers with chunk citations.
+- Ingests from Slack file uploads and paper links across channels.
+- Resolves full text with fallback source discovery (publisher pages, PDF links, DOI/arXiv paths).
+- Extracts structure (`title`, `authors`, `abstract`, `methods`, `results`, `conclusion`, `key_findings`).
+- Chunks and embeds content into pgvector.
+- Links related papers by semantic similarity.
+- Answers queries with retrieval, reranking, confidence checks, and citations.
 
-Core loop: **ingest -> structure -> chunk -> embed -> retrieve -> rerank -> answer -> validate**.
+## Agentic System Structure
 
-## Quick start
+The system is split into specialized components:
 
-1. Create and activate a virtual environment.
-2. Install dependencies:
+- `slack_listener/*`: Slack event handling + channel crawler.
+- `agent/fulltext_agent.py`: Full-text resolver for paper URLs.
+- `processing/*`: parsing, structuring, chunking, embeddings.
+- `database/*`: schema, vector search, related-paper graph, state.
+- `agent/*`: planner/controller/retriever/generator/validator loop.
+- `server.py`: FastAPI API + UI serving.
+- `ui/index.html`: chat UI with history + ingest controls.
+
+Core loop:
+
+1. Discover paper (Slack PDF/link)
+2. Resolve full text
+3. Structure and chunk
+4. Embed and persist
+5. Link related papers
+6. Query: plan -> retrieve -> rerank -> answer -> validate
+
+## Data Model (High Level)
+
+- `documents`: per-paper metadata (`title`, `authors_json`, canonical `source_url`, `summary_vector`, hash).
+- `chunks`: chunk text + section + embedding vector.
+- `paper_relations`: semantic links between related papers.
+- `crawl_state`: state keys (e.g., incremental crawl timestamp).
+
+## API Endpoints
+
+Core:
+
+- `GET /health`
+- `GET /` (chat UI)
+- `POST /slack/events`
+- `GET /query?q=...&top_k=5`
+
+Ingestion:
+
+- `POST /slack/ingest/channels` (sync crawl)
+- `POST /crawl/incremental` (since last run)
+- `GET /crawl/incremental/status`
+
+Async backfill (used by UI progress bar):
+
+- `POST /slack/ingest/channels/async`
+- `GET /slack/ingest/channels/async/{job_id}`
+
+DB tooling (dev):
+
+- `GET /db/stats`
+- `POST /admin/clear-db` (requires env safety flag)
+
+## UI Features
+
+- ChatGPT-style conversation history (left sidebar, localStorage).
+- `Update DB` (incremental crawl since last run).
+- `Scrape Window` (X days/weeks/months/years) with real channel-based progress.
+- `Clear DB` with double-confirm safety flow.
+- Source links + related papers panel in responses.
+- Top header DB stats (size, docs, chunks).
+
+## Use Cases
+
+- Lab paper channels: auto-index new papers from Slack and query by concept.
+- Team literature review: retrieve related work linked to each result.
+- Daily triage: incremental ingestion of newly posted papers.
+- RAG QA over internal paper-sharing workflows with grounded citations.
+
+## Quick Start
+
+1. Create and activate a venv.
+2. Install deps:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Copy env file and configure secrets:
+3. Configure env:
 
 ```bash
 cp .env.example .env
 ```
 
-4. Ensure PostgreSQL has `pgvector` extension installed.
-5. Run the API server:
+Required:
+
+- `OPENAI_API_KEY`
+- `SLACK_BOT_TOKEN`
+- `SLACK_SIGNING_SECRET`
+- `DATABASE_URL`
+
+Typical model config:
+
+- `OPENAI_MODEL_CHAT=gpt-4o-mini`
+- `OPENAI_MODEL_EMBEDDING=text-embedding-3-large`
+- `EMBEDDING_DIM=3072`
+
+4. Ensure Postgres has `pgvector` enabled.
+5. Run:
 
 ```bash
 uvicorn server:app --reload
 ```
 
-## Docker local staging
+## Slack Crawler CLI
 
-```bash
-docker compose up --build
-```
-
-## Endpoints
-
-- `GET /health`
-- `POST /slack/events`
-- `GET /query?q=...&top_k=5`
-- `POST /slack/ingest/channels`
-
-## End-to-end validation
-
-1. Start server:
-
-```bash
-uvicorn server:app --reload
-```
-
-2. Trigger real Slack ingestion:
-- Upload a PDF to a channel where your bot is present.
-- Capture the file ID from the event payload/logs.
-- Optional direct test using validator:
-
-```bash
-python scripts/validate_mvp.py --file-id FXXXXXXXX --report validation_report.json
-```
-
-3. Validate RAG search quality and latency:
-
-```bash
-python scripts/validate_mvp.py --top-k 5 --report validation_report.json
-```
-
-Or run with your own query set:
-
-```bash
-python scripts/validate_mvp.py --queries-json tests/validation_queries.json --top-k 5 --report validation_report.json
-```
-
-## Automated channel crawling (agentic ingest)
-
-Set channel targets in env:
+Configure target channels:
 
 ```env
 SLACK_CHANNEL_IDS=C01234567,C07654321
 ```
 
-Run crawler via CLI (PDFs + paper links by default):
+Run:
 
 ```bash
 python scripts/crawl_channels.py --days-back 30 --per-channel-page-cap 5 --top-k-files-per-channel 50
@@ -103,55 +135,23 @@ Scan all channels visible to the bot:
 python scripts/crawl_channels.py --scan-all-accessible --days-back 7
 ```
 
-Disable link ingestion if needed:
+## Security and Guardrails
 
-```bash
-python scripts/crawl_channels.py --channel-id C01234567 --no-include-links
+- Signature verification for Slack events (when signing secret is set).
+- Dedup by content hash before expensive structuring.
+- Confidence fallback when retrieval support is weak.
+- `Clear DB` is disabled by default.
+
+To enable dev DB clear:
+
+```env
+ALLOW_DB_CLEAR=true
+DB_CLEAR_CONFIRM_PHRASE=CLEAR DB
 ```
 
-Trigger via API:
-
-```bash
-curl -X POST http://127.0.0.1:8000/slack/ingest/channels \\
-  -H \"Content-Type: application/json\" \\
-  -d '{
-    "channel_ids": ["C01234567"],
-    "days_back": 30,
-    "per_channel_page_cap": 5,
-    "top_k_files_per_channel": 50,
-    "include_links": true,
-    "top_k_links_per_channel": 50
-  }'
-```
-
-Required Slack scopes for crawler:
-- `channels:history` and/or `groups:history`
-- `channels:read` and/or `groups:read`
-- `files:read`
-
-Optional for stronger full-text fallback via Unpaywall:
-- set `UNPAYWALL_EMAIL` in `.env`
-
-### Metrics included in `validation_report.json`
-
-- Retrieval relevance proxy: lexical overlap between query keywords and returned chunks.
-- Coverage proxy: count of distinct extracted sections represented in top-k matches.
-- Latency: embedding, retrieval, generation, and total query timings.
-
-## Retrieval and safety behavior
-
-- Ingestion deduplicates on SHA-256 file hash via the `documents` table.
-- Link ingestion uses a full-text agent:
-  - tries direct URL
-  - tries discovered PDF links in page HTML
-  - tries fallback sources (arXiv/DOI, optional Unpaywall OA links)
-- Chunking targets semantically coherent chunks in the ~500-1000 token range.
-- Low-information/noisy chunks are filtered before embedding.
-- Query flow runs: plan -> retrieve -> rerank -> generate -> validate.
-- If confidence is low, the agent returns an explicit \"not confident\" fallback.
-- Answers include citations metadata (`citations`) for verification.
+Then restart server.
 
 ## Notes
 
-- The Slack event endpoint includes URL verification support and optional signature checks.
-- This is an MVP baseline. Add retries, deduplication, auth hardening, and better chunking before production.
+- This is an MVP architecture focused on correctness and iteration speed.
+- For production: add auth, rate limits, retries, background worker durability, and evaluation dashboards.
