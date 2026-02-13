@@ -10,6 +10,7 @@ _SCHEMA = {
         "properties": {
             "title": {"type": "string"},
             "authors": {"type": "array", "items": {"type": "string"}},
+            "tldr": {"type": "string"},
             "abstract": {"type": "string"},
             "methods": {"type": "string"},
             "results": {"type": "string"},
@@ -19,15 +20,13 @@ _SCHEMA = {
                 "items": {"type": "string"},
             },
         },
-        "required": ["title", "authors", "abstract", "methods", "results", "conclusion", "key_findings"],
+        "required": ["title", "authors", "tldr", "abstract", "methods", "results", "conclusion", "key_findings"],
         "additionalProperties": False,
     },
 }
 
 
 def _extract_by_header(text: str, header: str) -> str:
-    # Wrap header alternatives in a non-capturing group so pipes in the header
-    # don't split the full regex and produce partial/invalid matches.
     pattern = rf"(?is)(?:{header})\s*[:\n]\s*(.*?)(?=\n[A-Z][A-Za-z ]{{2,40}}\s*[:\n]|$)"
     m = re.search(pattern, text)
     if not m:
@@ -42,7 +41,6 @@ def _extract_authors_heuristic(text: str) -> list[str]:
         lower = line.lower()
         if any(k in lower for k in ("abstract", "introduction", "doi", "journal", "keywords")):
             continue
-        # naive author-line heuristic: comma-separated names without sentence punctuation.
         if "," in line and len(line) < 300 and "." not in line:
             candidates = [a.strip() for a in line.split(",") if a.strip()]
             if 1 <= len(candidates) <= 20:
@@ -50,22 +48,39 @@ def _extract_authors_heuristic(text: str) -> list[str]:
     return []
 
 
+def _fallback_tldr(data: dict) -> str:
+    parts = []
+    if data.get("abstract"):
+        parts.append(data["abstract"].strip())
+    if data.get("results"):
+        parts.append("Results: " + data["results"].strip())
+    if data.get("conclusion"):
+        parts.append("Conclusion: " + data["conclusion"].strip())
+    if data.get("key_findings"):
+        parts.append("Key findings: " + "; ".join(data.get("key_findings", [])[:4]))
+    raw = " ".join(parts)
+    return " ".join(raw.split())[:900]
+
+
 def heuristic_structure(text: str) -> dict:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     title = lines[0][:300] if lines else "Untitled"
-    return {
+    data = {
         "title": title,
         "authors": _extract_authors_heuristic(text),
+        "tldr": "",
         "abstract": _extract_by_header(text, "abstract"),
         "methods": _extract_by_header(text, "methods?|methodology"),
         "results": _extract_by_header(text, "results?|findings"),
         "conclusion": _extract_by_header(text, "conclusion|discussion"),
         "key_findings": [],
     }
+    data["tldr"] = _fallback_tldr(data)
+    return data
 
 
 async def extract_structured_sections(text: str) -> dict:
-    """Extract structured fields from raw research text."""
+    """Extract structured fields from raw research text, including an informative TLDR."""
     from openai import AsyncOpenAI
 
     client = AsyncOpenAI()
@@ -74,10 +89,12 @@ async def extract_structured_sections(text: str) -> dict:
     heuristics = heuristic_structure(text)
     prompt = (
         "Extract this paper into strict JSON with fields: "
-        "title, authors, abstract, methods, results, conclusion, key_findings. "
+        "title, authors, tldr, abstract, methods, results, conclusion, key_findings. "
+        "The TLDR must be accurate, informative, and grounded in the paper: 4-7 sentences covering "
+        "the problem, approach, main quantitative/qualitative findings, and limitations if stated. "
+        "Do not invent claims. "
         "Use the heuristic draft as a hint, but correct it when evidence suggests better sections. "
-        "Authors should be a list of author names. "
-        "Be faithful to source text and avoid invented claims."
+        "Authors should be a list of author names."
     )
 
     response = await client.responses.create(
@@ -116,7 +133,7 @@ async def extract_structured_sections(text: str) -> dict:
     except json.JSONDecodeError as exc:
         raise ValueError("Invalid JSON returned from structuring model") from exc
 
-    for key in ("title", "authors", "abstract", "methods", "results", "conclusion", "key_findings"):
+    for key in ("title", "authors", "tldr", "abstract", "methods", "results", "conclusion", "key_findings"):
         if key not in data:
             raise ValueError(f"Missing required field in structured output: {key}")
 
@@ -125,7 +142,6 @@ async def extract_structured_sections(text: str) -> dict:
     if not isinstance(data["authors"], list):
         data["authors"] = []
 
-    # Hybrid fallback if model misses sections on noisy PDFs.
     if not data["authors"]:
         data["authors"] = heuristics["authors"]
     if not data["abstract"].strip():
@@ -136,5 +152,9 @@ async def extract_structured_sections(text: str) -> dict:
         data["results"] = heuristics["results"]
     if not data["conclusion"].strip():
         data["conclusion"] = heuristics["conclusion"]
+
+    data["tldr"] = " ".join((data.get("tldr") or "").split())
+    if len(data["tldr"]) < 80:
+        data["tldr"] = _fallback_tldr(data)
 
     return data

@@ -430,11 +430,11 @@
 
         const sourceCandidates = [];
         for (const p of papers) {
-          if (p?.source_url) sourceCandidates.push({ title: p.title || p.doc_id || p.source_url, url: p.source_url });
+          if (p?.source_url) sourceCandidates.push({ title: p.title || p.doc_id || p.source_url, url: p.source_url, tldr: p.tldr || "" });
         }
         for (const m of matches) {
           const p = m?.paper || {};
-          if (p?.source_url) sourceCandidates.push({ title: p.title || p.doc_id || p.source_url, url: p.source_url });
+          if (p?.source_url) sourceCandidates.push({ title: p.title || p.doc_id || p.source_url, url: p.source_url, tldr: p.tldr || "" });
         }
         const sources = uniqueBy(sourceCandidates, (x) => x.url).slice(0, 6);
 
@@ -502,6 +502,13 @@
             a.rel = 'noopener noreferrer';
             a.textContent = src.title || src.url;
             list.appendChild(a);
+
+            if (src.tldr) {
+              const sub = document.createElement('div');
+              sub.className = 'attach-sub';
+              sub.textContent = src.tldr;
+              list.appendChild(sub);
+            }
           }
           card.appendChild(list);
           wrap.appendChild(card);

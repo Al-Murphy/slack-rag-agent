@@ -23,6 +23,7 @@ class Document(Base):
     title: Mapped[str] = mapped_column(String(500), default="")
     authors_json: Mapped[str] = mapped_column(Text, default="[]")
     source_url: Mapped[str] = mapped_column(Text, default="")
+    tldr_text: Mapped[str] = mapped_column(Text, default="")
     summary_text: Mapped[str] = mapped_column(Text, default="")
     summary_vector: Mapped[list[float] | None] = mapped_column(Vector(int(os.environ.get("EMBEDDING_DIM", "3072"))), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

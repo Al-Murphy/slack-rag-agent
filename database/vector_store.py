@@ -38,6 +38,7 @@ def init_db() -> None:
     with _engine().begin() as conn:
         conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS authors_json TEXT DEFAULT '[]'"))
         conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_url TEXT DEFAULT ''"))
+        conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS tldr_text TEXT DEFAULT ''"))
         conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS summary_text TEXT DEFAULT ''"))
         conn.execute(text(f"ALTER TABLE documents ADD COLUMN IF NOT EXISTS summary_vector vector({int(os.environ.get('EMBEDDING_DIM', '3072'))})"))
         conn.execute(text("CREATE TABLE IF NOT EXISTS paper_relations (id SERIAL PRIMARY KEY, source_doc_id VARCHAR(255), target_doc_id VARCHAR(255), score FLOAT, reason VARCHAR(100), created_at TIMESTAMP DEFAULT NOW())"))
@@ -174,6 +175,7 @@ def insert_paper_into_db(
             title=structured_json.get("title", "")[:500],
             authors_json=json.dumps(authors),
             source_url=source_url or "",
+            tldr_text=(structured_json.get("tldr", "") or "")[:3000],
             summary_text=summary_text,
             summary_vector=summary_vector,
         )
@@ -217,6 +219,7 @@ def get_documents_by_doc_ids(doc_ids: Sequence[str]) -> dict[str, dict[str, Any]
             "source_url": d.source_url,
             "source_ref": d.source_ref,
             "source": d.source,
+            "tldr": d.tldr_text or "",
         }
     return output
 
@@ -251,6 +254,7 @@ def get_related_documents_for_doc_ids(doc_ids: Sequence[str], per_doc_limit: int
                 "title": target.get("title", ""),
                 "authors": target.get("authors", []),
                 "source_url": target.get("source_url", ""),
+                "tldr": target.get("tldr", ""),
             }
         )
     return out
