@@ -293,6 +293,7 @@
           <div class="top-actions">
             <button id="sync" class="btn" type="button">Update DB</button>
             <button id="backfill" class="btn" type="button">Scrape Window</button>
+            <button id="evalBtn" class="btn" type="button">Run Retrieval Test</button>
             <button id="clearDb" class="btn danger" type="button">Clear DB</button>
           </div>
         </header>
@@ -318,6 +319,7 @@
       const sync = document.getElementById('sync');
       const backfill = document.getElementById('backfill');
       const clearDb = document.getElementById('clearDb');
+      const evalBtn = document.getElementById('evalBtn');
       const newChatBtn = document.getElementById('newChat');
       const historyEl = document.getElementById('history');
       const dbMeta = document.getElementById('dbMeta');
@@ -645,6 +647,16 @@
         return await res.json();
       }
 
+      async function runRetrievalEval(payload) {
+        const res = await fetch('/eval/retrieval', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error(`Eval failed: ${res.status}`);
+        return await res.json();
+      }
+
       async function getDbStats() {
         const res = await fetch('/db/stats');
         if (!res.ok) throw new Error(`DB stats failed: ${res.status}`);
@@ -831,6 +843,72 @@
           progress.fail('Clear DB failed.', err);
         } finally {
           clearDb.disabled = false;
+        }
+      });
+
+      evalBtn.addEventListener('click', async () => {
+        const channelRaw = window.prompt('Optional channel ID to evaluate (leave blank for any):', '');
+        if (channelRaw === null) return;
+
+        const daysRaw = window.prompt('Days back to sample paper finding from:', '30');
+        if (daysRaw === null) return;
+
+        const paraRaw = window.prompt('Number of paraphrases:', '5');
+        if (paraRaw === null) return;
+
+        const daysBack = Number(daysRaw);
+        const paraphraseCount = Number(paraRaw);
+        if (!Number.isFinite(daysBack) || daysBack < 1 || !Number.isFinite(paraphraseCount) || paraphraseCount < 1) {
+          addMessage('assistant', 'Invalid retrieval test settings.', 'days_back must be >=1 and paraphrase_count must be >=1');
+          return;
+        }
+
+        evalBtn.disabled = true;
+        const progress = startProgressMessage('Running retrieval quality test...', false);
+        try {
+          const payload = await runRetrievalEval({
+            channel_id: channelRaw.trim() || null,
+            days_back: Math.floor(daysBack),
+            paraphrase_count: Math.floor(paraphraseCount),
+            top_k: 5,
+          });
+
+          if (!payload.ok) {
+            progress.fail('Retrieval test failed.', payload.message || payload.reason || 'Unknown error');
+            return;
+          }
+
+          const m = payload.metrics || {};
+          const seed = payload.seed || {};
+          const q = payload.queries || [];
+          const misses = q.filter(x => !x.hit).length;
+
+          const evalSummary = [
+            `hit_rate@k=${m.hit_rate_at_k}`,
+            `mrr@k=${m.mrr_at_k}`,
+            `hits=${m.hits}/${m.total}`,
+            `misses=${misses}`,
+          ].join(' · ');
+
+          progress.done('Retrieval test completed.', evalSummary);
+
+          addMessage(
+            'assistant',
+            `Seed paper: ${seed.title || seed.doc_id || 'unknown'}
+Seed finding section: ${seed.section || 'n/a'}
+Seed finding: ${(seed.finding_text || '').slice(0, 500)}`,
+            `source=${seed.source_url || 'n/a'}`,
+            {
+              sources: seed.source_url
+                ? [{ title: seed.title || seed.doc_id || seed.source_url, url: seed.source_url, tldr: seed.tldr || '' }]
+                : [],
+              related: [],
+            }
+          );
+        } catch (err) {
+          progress.fail('Retrieval test failed.', err);
+        } finally {
+          evalBtn.disabled = false;
         }
       });
 

@@ -72,19 +72,27 @@ def _build_summary_text(structured_json: dict) -> str:
 
 
 def _cosine_distance(vec_a: Sequence[float] | None, vec_b: Sequence[float] | None) -> float | None:
-    if not vec_a or not vec_b:
+    if vec_a is None or vec_b is None:
         return None
-    if len(vec_a) != len(vec_b):
+
+    try:
+        a_vals = [float(x) for x in vec_a]
+        b_vals = [float(x) for x in vec_b]
+    except Exception:
         return None
+
+    if not a_vals or not b_vals:
+        return None
+    if len(a_vals) != len(b_vals):
+        return None
+
     dot = 0.0
     na = 0.0
     nb = 0.0
-    for a, b in zip(vec_a, vec_b):
-        fa = float(a)
-        fb = float(b)
-        dot += fa * fb
-        na += fa * fa
-        nb += fb * fb
+    for a, b in zip(a_vals, b_vals):
+        dot += a * b
+        na += a * a
+        nb += b * b
     if na <= 0.0 or nb <= 0.0:
         return None
     cos = dot / (math.sqrt(na) * math.sqrt(nb))
@@ -365,6 +373,46 @@ def get_related_documents_for_doc_ids(doc_ids: Sequence[str], per_doc_limit: int
             }
         )
     return out
+
+
+def get_eval_seed_finding(channel_id: str | None = None, days_back: int = 30) -> dict[str, Any] | None:
+    """Pick a recent finding-like chunk from Slack-ingested papers for retrieval evaluation."""
+    SessionLocal = _session_factory()
+    with SessionLocal() as session:
+        params: dict[str, Any] = {"days_back": int(days_back)}
+        where_channel = ""
+        if channel_id:
+            params["channel_like"] = f"channel:{channel_id}%"
+            where_channel = "AND d.source_ref LIKE :channel_like"
+
+        row = session.execute(
+            text(
+                f"""
+                SELECT c.doc_id, c.content, c.section, d.title, d.source_url, d.tldr_text
+                FROM chunks c
+                JOIN documents d ON d.doc_id = c.doc_id
+                WHERE c.section IN ('key_findings','results','conclusion')
+                  AND length(c.content) >= 120
+                  AND d.created_at >= NOW() - (:days_back * INTERVAL '1 day')
+                  {where_channel}
+                ORDER BY d.created_at DESC, c.id ASC
+                LIMIT 1
+                """
+            ),
+            params,
+        ).first()
+
+    if not row:
+        return None
+
+    return {
+        "doc_id": str(row[0]),
+        "finding_text": str(row[1]),
+        "section": str(row[2]),
+        "title": str(row[3] or ""),
+        "source_url": str(row[4] or ""),
+        "tldr": str(row[5] or ""),
+    }
 
 
 def clear_database() -> dict[str, int]:

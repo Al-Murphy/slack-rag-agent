@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 load_dotenv()
 
 from agent.rag_agent import query_rag
+from agent.testing_agent import run_retrieval_eval
 from database.vector_store import clear_database, get_database_stats, get_state_value, init_db, set_state_value
 from slack_listener.channel_crawler import ingest_channels
 from slack_listener.event_handler import handle_slack_event
@@ -68,6 +69,13 @@ class AsyncChannelIngestRequest(BaseModel):
     include_links: bool = True
     top_k_links_per_channel: int = Field(default=50, ge=1, le=500)
     link_concurrency_limit: int = Field(default=3, ge=1, le=20)
+
+
+class RetrievalEvalRequest(BaseModel):
+    channel_id: str | None = None
+    days_back: int = Field(default=30, ge=1, le=365)
+    paraphrase_count: int = Field(default=5, ge=1, le=8)
+    top_k: int = Field(default=5, ge=1, le=20)
 
 
 @app.on_event("startup")
@@ -173,6 +181,16 @@ async def search(q: str, top_k: int = 5) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="top_k must be between 1 and 20")
 
     return await query_rag(q, top_k=top_k)
+
+
+@app.post("/eval/retrieval")
+async def eval_retrieval(body: RetrievalEvalRequest) -> dict[str, Any]:
+    return await run_retrieval_eval(
+        channel_id=body.channel_id,
+        days_back=body.days_back,
+        paraphrase_count=body.paraphrase_count,
+        top_k=body.top_k,
+    )
 
 
 @app.get("/db/stats")
