@@ -11,8 +11,10 @@ from openai import AsyncOpenAI
 
 from agent.controller import answer_support_score, confidence_score, plan_query, rerank_chunks
 from agent.prompts import compose_system_prompt
+from agent.review_agent import review_answer
 from agent.tools import build_context
 from database.vector_store import (
+    apply_review_updates,
     get_documents_by_doc_ids,
     get_related_documents_for_doc_ids,
     search_hybrid_chunks,
@@ -265,23 +267,93 @@ async def query_rag(
     conf = confidence_score(plan, selected_ranked)
     needs_fallback = len(selected_chunks) < plan.min_required_matches or conf < plan.confidence_threshold
 
+    review_result = {"approved": True, "corrected_answer": "", "issues": [], "review_confidence": 0.0, "document_updates": [], "connection_updates": []}
+    db_review_updates = {"documents": 0, "relations": 0}
     if needs_fallback:
         reason = "insufficient retrieval confidence"
         answer = _fallback_response(reason, conf)
         validator_score = 0.0
+        t3 = time.perf_counter()
+        t4 = t3
     else:
-        answer = await generate_answer(
+        draft_answer = await generate_answer(
             query,
             selected_chunks,
             doc_lookup=doc_lookup,
             persona_profile=persona_profile,
             persona_enabled=persona_enabled,
         )
-        validator_score = answer_support_score(answer, selected_ranked)
+        validator_score = answer_support_score(draft_answer, selected_ranked)
         if validator_score < 0.2:
             answer = _fallback_response("generated answer not strongly supported by retrieved context", conf)
+            t3 = time.perf_counter()
+            t4 = t3
+        else:
+            t3 = time.perf_counter()
+            use_review_agent = os.environ.get("ENABLE_REVIEW_AGENT", "true").lower() in {"1", "true", "yes"}
+            if use_review_agent:
+                try:
+                    context_text = build_context(selected_chunks, doc_lookup=doc_lookup)
+                    document_catalog = [
+                        {
+                            "doc_id": did,
+                            "title": d.get("title", ""),
+                            "authors": d.get("authors", []),
+                            "tldr": d.get("tldr", ""),
+                            "paper_type": d.get("paper_type", ""),
+                        }
+                        for did, d in doc_lookup.items()
+                    ]
+                    connection_catalog: list[dict[str, Any]] = []
+                    seen_pairs: set[tuple[str, str]] = set()
+                    for src_id, rels in related_map.items():
+                        if src_id not in doc_lookup:
+                            continue
+                        for rel in rels:
+                            dst_id = str(rel.get("doc_id", "") or "").strip()
+                            if not dst_id or dst_id not in doc_lookup or dst_id == src_id:
+                                continue
+                            a, b = (src_id, dst_id) if src_id < dst_id else (dst_id, src_id)
+                            if (a, b) in seen_pairs:
+                                continue
+                            seen_pairs.add((a, b))
+                            connection_catalog.append(
+                                {
+                                    "source_doc_id": a,
+                                    "target_doc_id": b,
+                                    "score": rel.get("score", 0.0),
+                                    "reason": rel.get("reason", ""),
+                                }
+                            )
 
-    t3 = time.perf_counter()
+                    review_result = await review_answer(
+                        query=query,
+                        draft_answer=draft_answer,
+                        context_text=context_text,
+                        document_catalog=document_catalog,
+                        connection_catalog=connection_catalog,
+                    )
+                except Exception:
+                    logger.exception("Review agent failed; returning draft answer")
+                    review_result = {"approved": True, "corrected_answer": draft_answer, "issues": ["review_error"], "review_confidence": 0.0, "document_updates": [], "connection_updates": []}
+            else:
+                review_result = {"approved": True, "corrected_answer": draft_answer, "issues": [], "review_confidence": 0.0, "document_updates": [], "connection_updates": []}
+
+            db_review_updates = {"documents": 0, "relations": 0}
+            if os.environ.get("ENABLE_REVIEW_DB_UPDATES", "true").lower() in {"1", "true", "yes"}:
+                try:
+                    db_review_updates = apply_review_updates(review_result)
+                except Exception:
+                    logger.exception("Failed applying review DB updates")
+
+            reviewed_answer = str(review_result.get("corrected_answer", "") or "").strip() or draft_answer
+            reviewed_support = answer_support_score(reviewed_answer, selected_ranked)
+            if reviewed_support < 0.18:
+                answer = _fallback_response("reviewed answer not strongly supported by retrieved context", conf)
+            else:
+                answer = reviewed_answer
+                validator_score = max(validator_score, reviewed_support)
+            t4 = time.perf_counter()
 
     section_counts = Counter(c.section for c in selected_chunks)
     logger.info(
@@ -328,7 +400,8 @@ async def query_rag(
                 "embedding": round((t1 - t0) * 1000, 2),
                 "retrieval": round((t2 - t1) * 1000, 2),
                 "generation": round((t3 - t2) * 1000, 2),
-                "total": round((t3 - t0) * 1000, 2),
+                "review": round((t4 - t3) * 1000, 2),
+                "total": round((t4 - t0) * 1000, 2),
             },
             "retrieval": {
                 "top_k": top_k,
@@ -343,6 +416,12 @@ async def query_rag(
                     "confidence_score": conf,
                     "validator_support_score": validator_score,
                     "llm_rerank_enabled": os.environ.get("ENABLE_LLM_RERANK", "true"),
+                    "review_agent_enabled": os.environ.get("ENABLE_REVIEW_AGENT", "true"),
+                    "review_approved": bool(review_result.get("approved", True)),
+                    "review_confidence": float(review_result.get("review_confidence", 0.0) or 0.0),
+                    "review_issue_count": len(review_result.get("issues", [])) if isinstance(review_result.get("issues", []), list) else 0,
+                    "review_db_document_updates": int(db_review_updates.get("documents", 0) or 0),
+                    "review_db_relation_updates": int(db_review_updates.get("relations", 0) or 0),
                 },
             },
         },

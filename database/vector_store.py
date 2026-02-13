@@ -4,6 +4,7 @@ import json
 import logging
 import math
 import os
+from datetime import datetime
 from collections.abc import Sequence
 from functools import lru_cache
 from typing import Any
@@ -40,6 +41,10 @@ def init_db() -> None:
         conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS authors_json TEXT DEFAULT '[]'"))
         conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_url TEXT DEFAULT ''"))
         conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS tldr_text TEXT DEFAULT ''"))
+        conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS paper_type VARCHAR(64) DEFAULT ''"))
+        conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS review_confidence FLOAT DEFAULT 0"))
+        conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS review_notes TEXT DEFAULT ''"))
+        conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS last_reviewed_at TIMESTAMP NULL"))
         conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS summary_text TEXT DEFAULT ''"))
         conn.execute(text(f"ALTER TABLE documents ADD COLUMN IF NOT EXISTS summary_vector vector({dim})"))
         conn.execute(text(f"ALTER TABLE documents ADD COLUMN IF NOT EXISTS abstract_vector vector({dim})"))
@@ -48,9 +53,11 @@ def init_db() -> None:
             text(
                 "CREATE TABLE IF NOT EXISTS paper_relations "
                 "(id SERIAL PRIMARY KEY, source_doc_id VARCHAR(255), target_doc_id VARCHAR(255), "
-                "score FLOAT, reason VARCHAR(100), created_at TIMESTAMP DEFAULT NOW())"
+                "score FLOAT, reason VARCHAR(100), status VARCHAR(32) DEFAULT 'active', created_at TIMESTAMP DEFAULT NOW())"
             )
         )
+        conn.execute(text("ALTER TABLE paper_relations ADD COLUMN IF NOT EXISTS status VARCHAR(32) DEFAULT 'active'"))
+        conn.execute(text("UPDATE paper_relations SET status='active' WHERE status IS NULL"))
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_paper_rel_pair ON paper_relations (source_doc_id, target_doc_id)"))
 
 
@@ -350,6 +357,9 @@ def get_documents_by_doc_ids(doc_ids: Sequence[str]) -> dict[str, dict[str, Any]
             "source_ref": d.source_ref,
             "source": d.source,
             "tldr": d.tldr_text or "",
+            "paper_type": d.paper_type or "",
+            "review_confidence": float(d.review_confidence or 0.0),
+            "review_notes": d.review_notes or "",
         }
     return output
 
@@ -362,7 +372,10 @@ def get_related_documents_for_doc_ids(doc_ids: Sequence[str], per_doc_limit: int
     with SessionLocal() as session:
         rel_stmt = (
             select(PaperRelation)
-            .where(PaperRelation.source_doc_id.in_(list(set(doc_ids))))
+            .where(
+                PaperRelation.source_doc_id.in_(list(set(doc_ids))),
+                PaperRelation.status == "active",
+            )
             .order_by(PaperRelation.score.desc())
         )
         relations = list(session.execute(rel_stmt).scalars().all())
@@ -564,6 +577,7 @@ def get_paper_graph_data(max_docs: int = 300, min_score: float = 0.0) -> dict[st
                     PaperRelation.source_doc_id.in_(doc_ids),
                     PaperRelation.target_doc_id.in_(doc_ids),
                     PaperRelation.score >= min_score,
+                    PaperRelation.status == "active",
                 )
             ).scalars().all()
         )
@@ -587,6 +601,7 @@ def get_paper_graph_data(max_docs: int = 300, min_score: float = 0.0) -> dict[st
             "source_ref": d.source_ref or "",
             "created_at": d.created_at.isoformat() if getattr(d, "created_at", None) else None,
             "source": d.source or "",
+            "paper_type": d.paper_type or "",
         }
         nodes.append(node)
         node_by_id[d.doc_id] = node
@@ -628,6 +643,96 @@ def get_paper_graph_data(max_docs: int = 300, min_score: float = 0.0) -> dict[st
             "edges": len(edges),
         },
     }
+
+
+
+def apply_review_updates(review_result: dict[str, Any]) -> dict[str, int]:
+    """Persist review-agent corrections into document metadata and relation statuses."""
+    doc_updates = review_result.get("document_updates", [])
+    conn_updates = review_result.get("connection_updates", [])
+
+    updated_docs = 0
+    updated_relations = 0
+
+    SessionLocal = _session_factory()
+    with SessionLocal() as session:
+        # Document metadata updates
+        if isinstance(doc_updates, list):
+            for u in doc_updates:
+                if not isinstance(u, dict):
+                    continue
+                doc_id = str(u.get("doc_id", "") or "").strip()
+                if not doc_id:
+                    continue
+
+                conf = float(u.get("confidence", 0.0) or 0.0)
+                if conf < 0.60:
+                    continue
+
+                label = str(u.get("paper_type", "") or "").strip().lower()
+                allowed = {"genomic_language_model", "seq2func", "other", "unknown"}
+                if label not in allowed:
+                    continue
+
+                note = str(u.get("note", "") or "").strip()[:3000]
+                doc = session.execute(select(Document).where(Document.doc_id == doc_id).limit(1)).scalar_one_or_none()
+                if not doc:
+                    continue
+
+                doc.paper_type = label
+                doc.review_confidence = max(0.0, min(1.0, conf))
+                doc.review_notes = note
+                doc.last_reviewed_at = datetime.utcnow()
+                updated_docs += 1
+
+        # Connection updates: suppress/activate
+        if isinstance(conn_updates, list):
+            for cu in conn_updates:
+                if not isinstance(cu, dict):
+                    continue
+                a = str(cu.get("source_doc_id", "") or "").strip()
+                b = str(cu.get("target_doc_id", "") or "").strip()
+                action = str(cu.get("action", "") or "").strip().lower()
+                reason = str(cu.get("reason", "") or "").strip()
+                if not a or not b or a == b:
+                    continue
+                if action not in {"suppress", "activate", "keep"}:
+                    continue
+
+                pairs = session.execute(
+                    select(PaperRelation).where(
+                        ((PaperRelation.source_doc_id == a) & (PaperRelation.target_doc_id == b))
+                        | ((PaperRelation.source_doc_id == b) & (PaperRelation.target_doc_id == a))
+                    )
+                ).scalars().all()
+
+                if action == "keep":
+                    continue
+
+                target_status = "suppressed" if action == "suppress" else "active"
+
+                if pairs:
+                    for rel in pairs:
+                        rel.status = target_status
+                        if reason:
+                            base = (rel.reason or "").split("|", 1)[0]
+                            rel.reason = f"{base}|{reason}"[:100]
+                        updated_relations += 1
+                elif action == "activate":
+                    rel = PaperRelation(
+                        source_doc_id=a,
+                        target_doc_id=b,
+                        score=0.25,
+                        reason=(f"review_activate|{reason}" if reason else "review_activate")[:100],
+                        status="active",
+                    )
+                    session.add(rel)
+                    updated_relations += 1
+
+        session.commit()
+
+    return {"documents": updated_docs, "relations": updated_relations}
+
 
 
 def get_state_value(key: str) -> str | None:

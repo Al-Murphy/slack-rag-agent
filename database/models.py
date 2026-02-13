@@ -24,6 +24,10 @@ class Document(Base):
     authors_json: Mapped[str] = mapped_column(Text, default="[]")
     source_url: Mapped[str] = mapped_column(Text, default="")
     tldr_text: Mapped[str] = mapped_column(Text, default="")
+    paper_type: Mapped[str] = mapped_column(String(64), default="")
+    review_confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    review_notes: Mapped[str] = mapped_column(Text, default="")
+    last_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     summary_text: Mapped[str] = mapped_column(Text, default="")
     summary_vector: Mapped[list[float] | None] = mapped_column(Vector(int(os.environ.get("EMBEDDING_DIM", "3072"))), nullable=True)
     abstract_vector: Mapped[list[float] | None] = mapped_column(Vector(int(os.environ.get("EMBEDDING_DIM", "3072"))), nullable=True)
@@ -39,6 +43,7 @@ class PaperRelation(Base):
     target_doc_id: Mapped[str] = mapped_column(String(255), index=True)
     score: Mapped[float] = mapped_column(Float)
     reason: Mapped[str] = mapped_column(String(100), default="semantic_similarity")
+    status: Mapped[str] = mapped_column(String(32), default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

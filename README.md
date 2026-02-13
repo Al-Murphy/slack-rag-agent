@@ -1,52 +1,60 @@
 # Slack RAG Agent
 
-![Slack RAG Agent Logo](ui/logo-v3.svg)
+Agentic Slack-to-RAG system for genomics x AI paper workflows.
 
-Slack-to-RAG system for genomics paper workflows.
+## Core Features
 
-## What It Does
+- Ingests Slack PDFs and paper links across channels
+- Resolves full text (PDF/HTML + fallback resolution paths)
+- Extracts structured sections and generates high-quality TLDRs
+- Stores chunks, embeddings, metadata, and related-paper graph in Postgres + pgvector
+- Grounded retrieval with citations, related papers, and confidence reporting
+- Review agent validates answers before return
+- **Review-to-DB writeback:** review agent can update document labels/notes/confidence and paper link status (`active` / `suppressed`)
 
-- Crawls Slack channels for PDFs and paper links.
-- Resolves full text (with fallback source discovery).
-- Extracts structured fields (`title`, `authors`, `tldr`, `abstract`, `methods`, `results`, `conclusion`, `key_findings`).
-- Chunks + embeds documents into Postgres/pgvector.
-- Links related papers by semantic similarity.
-- Answers questions with grounded retrieval, reranking, confidence checks, citations, and source links.
+## Agentic Pipeline
 
-## Agentic Loop
+1. Slack crawler discovers files/links
+2. Full-text resolver fetches best available paper source
+3. Structurer extracts title/authors/sections/TLDR
+4. Vector store inserts chunks + embeddings + document metadata
+5. Retrieval agent finds evidence and drafts response
+6. Review agent checks grounding/fit and can curate DB entries/connections
 
-1. Ingest: discover paper in Slack.
-2. Resolve: fetch best available full text.
-3. Structure: parse and extract scientific sections.
-4. Index: chunk, embed, store, deduplicate, link related work.
-5. Retrieve: hybrid search (vector + sparse + metadata-aware rerank).
-6. Respond: generate grounded answer with fallback when confidence is low.
+## Required `.env`
 
-## UI
+```env
+# OpenAI
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL_CHAT=gpt-4o-mini
+OPENAI_MODEL_EMBEDDING=text-embedding-3-large
+EMBEDDING_DIM=3072
 
-- Chat interface with saved history.
-- `Update DB` incremental ingestion.
-- `Scrape Window` async backfill with progress.
-- `Run Retrieval Test` quality eval.
-- `Persona` editor/refiner for lab-specific prompt behavior.
-- `Paper Graph` interactive network of related papers (click nodes for TLDR and metadata).
+# Slack
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_SIGNING_SECRET=...
 
-## Core Endpoints
+# Database (Supabase/Postgres)
+DATABASE_URL=postgresql://postgres:<password>@<host>:5432/postgres?sslmode=require
 
-- `GET /` UI
-- `GET /query`
-- `POST /crawl/incremental`
-- `POST /slack/ingest/channels/async`
-- `GET /slack/ingest/channels/async/{job_id}`
-- `GET /papers/graph`
-- `GET /db/stats`
+# App flags
+ENABLE_REVIEW_DB_UPDATES=true
+ALLOW_DB_CLEAR=false
 
-## Quick Start
+# Optional crawler defaults
+CRAWL_CHANNEL_IDS=C12345,C67890
+CRAWL_DAYS_BACK_DEFAULT=1
+```
+
+## Run
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env
 uvicorn server:app --reload
 ```
 
-Required env vars: `OPENAI_API_KEY`, `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `DATABASE_URL`.
+## Notes
+
+- Python 3.11+ recommended
+- Enable `vector` extension (`pgvector`) on your Postgres database
+- Slack bot needs channel history/file scopes and must be in the target channels
