@@ -13,6 +13,7 @@ from uuid import uuid4
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 # Load .env before importing modules that read environment variables.
@@ -26,6 +27,7 @@ from slack_listener.channel_crawler import ingest_channels
 from slack_listener.event_handler import handle_slack_event
 
 app = FastAPI(title="Slack RAG Agent MVP")
+app.mount("/ui", StaticFiles(directory=Path(__file__).parent / "ui"), name="ui")
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
     format="%(asctime)s %(levelname)s %(name)s - %(message)s",
