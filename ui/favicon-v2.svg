@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
   <title id="title">Slack RAG Agent Logo</title>
-  <desc id="desc">Logo showing a research paper, search magnifier, and connected graph nodes to represent relevant paper retrieval and relationships.</desc>
+  <desc id="desc">Logo showing a graph where one node is a paper with a magnifying glass, representing finding relevant papers and connected literature.</desc>
 
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
@@ -15,31 +15,41 @@
 
   <rect x="20" y="20" width="472" height="472" rx="92" fill="url(#bg)"/>
 
-  <!-- Paper/document card -->
-  <rect x="88" y="96" width="236" height="304" rx="20" fill="#f8fafc"/>
-  <rect x="116" y="138" width="180" height="16" rx="8" fill="#93c5fd"/>
-  <rect x="116" y="172" width="158" height="12" rx="6" fill="#cbd5e1"/>
-  <rect x="116" y="198" width="168" height="12" rx="6" fill="#cbd5e1"/>
-  <rect x="116" y="224" width="142" height="12" rx="6" fill="#cbd5e1"/>
-  <rect x="116" y="270" width="112" height="12" rx="6" fill="#94a3b8"/>
-  <rect x="116" y="296" width="132" height="12" rx="6" fill="#94a3b8"/>
-
-  <!-- Magnifier (relevant-paper search) -->
-  <circle cx="286" cy="294" r="52" fill="none" stroke="url(#accent)" stroke-width="18"/>
-  <line x1="324" y1="332" x2="378" y2="386" stroke="url(#accent)" stroke-width="18" stroke-linecap="round"/>
-
-  <!-- Graph nodes + links (paper relations) -->
-  <g stroke="#a5f3fc" stroke-width="8" stroke-linecap="round" opacity="0.96">
-    <line x1="342" y1="150" x2="412" y2="114"/>
-    <line x1="342" y1="150" x2="424" y2="214"/>
-    <line x1="412" y1="114" x2="424" y2="214"/>
-  </g>
-  <g fill="#e0f2fe" stroke="#0f172a" stroke-width="4">
-    <circle cx="342" cy="150" r="16"/>
-    <circle cx="412" cy="114" r="14"/>
-    <circle cx="424" cy="214" r="14"/>
+  <!-- Graph connections -->
+  <g stroke="#93c5fd" stroke-width="10" stroke-linecap="round" opacity="0.9">
+    <line x1="164" y1="260" x2="292" y2="188"/>
+    <line x1="164" y1="260" x2="348" y2="316"/>
+    <line x1="292" y1="188" x2="348" y2="316"/>
   </g>
 
-  <!-- Footer mark -->
+  <!-- Left node: paper+search fused node -->
+  <g>
+    <circle cx="164" cy="260" r="86" fill="#f8fafc" stroke="#0f172a" stroke-width="8"/>
+
+    <!-- Paper icon inside node -->
+    <rect x="122" y="212" width="64" height="84" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="2"/>
+    <rect x="132" y="228" width="42" height="6" rx="3" fill="#93c5fd"/>
+    <rect x="132" y="242" width="36" height="5" rx="2.5" fill="#cbd5e1"/>
+    <rect x="132" y="253" width="38" height="5" rx="2.5" fill="#cbd5e1"/>
+    <rect x="132" y="264" width="30" height="5" rx="2.5" fill="#cbd5e1"/>
+
+    <!-- Magnifier overlay inside same node -->
+    <circle cx="178" cy="274" r="18" fill="none" stroke="url(#accent)" stroke-width="8"/>
+    <line x1="190" y1="286" x2="208" y2="304" stroke="url(#accent)" stroke-width="8" stroke-linecap="round"/>
+  </g>
+
+  <!-- Top-right node -->
+  <g>
+    <circle cx="292" cy="188" r="40" fill="#e0f2fe" stroke="#0f172a" stroke-width="6"/>
+    <circle cx="292" cy="188" r="12" fill="#0ea5e9"/>
+  </g>
+
+  <!-- Bottom-right node -->
+  <g>
+    <circle cx="348" cy="316" r="48" fill="#e2e8f0" stroke="#0f172a" stroke-width="6"/>
+    <path d="M328 316 h40" stroke="#334155" stroke-width="6" stroke-linecap="round"/>
+    <path d="M348 296 v40" stroke="#334155" stroke-width="6" stroke-linecap="round"/>
+  </g>
+
   <text x="256" y="446" text-anchor="middle" fill="#dbeafe" font-size="40" font-family="IBM Plex Sans, Avenir Next, Segoe UI, sans-serif" font-weight="700">RAG</text>
 </svg>
