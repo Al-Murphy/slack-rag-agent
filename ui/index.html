@@ -860,13 +860,13 @@
         const daysRaw = window.prompt('Days back to sample paper finding from:', '30');
         if (daysRaw === null) return;
 
-        const paraRaw = window.prompt('Number of paraphrases:', '5');
+        const paraRaw = window.prompt('Number of paraphrases (1-100):', '10');
         if (paraRaw === null) return;
 
         const daysBack = Number(daysRaw);
         const paraphraseCount = Number(paraRaw);
-        if (!Number.isFinite(daysBack) || daysBack < 1 || !Number.isFinite(paraphraseCount) || paraphraseCount < 1) {
-          addMessage('assistant', 'Invalid retrieval test settings.', 'days_back must be >=1 and paraphrase_count must be >=1');
+        if (!Number.isFinite(daysBack) || daysBack < 1 || !Number.isFinite(paraphraseCount) || paraphraseCount < 1 || paraphraseCount > 100) {
+          addMessage('assistant', 'Invalid retrieval test settings.', 'days_back must be >=1 and paraphrase_count must be between 1 and 100');
           return;
         }
 

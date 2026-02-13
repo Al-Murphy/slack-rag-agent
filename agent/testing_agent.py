@@ -12,7 +12,7 @@ from processing.embeddings import get_embeddings
 
 
 async def _generate_paraphrases(text: str, n: int) -> list[str]:
-    n = max(1, min(8, int(n)))
+    n = max(1, min(100, int(n)))
     model = os.environ.get("OPENAI_MODEL_CHAT", "gpt-4o-mini")
     client = AsyncOpenAI()
 

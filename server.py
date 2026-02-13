@@ -74,7 +74,7 @@ class AsyncChannelIngestRequest(BaseModel):
 class RetrievalEvalRequest(BaseModel):
     channel_id: str | None = None
     days_back: int = Field(default=30, ge=1, le=365)
-    paraphrase_count: int = Field(default=5, ge=1, le=8)
+    paraphrase_count: int = Field(default=5, ge=1, le=100)
     top_k: int = Field(default=5, ge=1, le=20)
 
 
