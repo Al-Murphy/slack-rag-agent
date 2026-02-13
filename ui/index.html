@@ -213,6 +213,31 @@
         font-size: 12px;
       }
 
+      .progress-wrap {
+        margin-top: 8px;
+      }
+
+      .progress-track {
+        width: 100%;
+        height: 8px;
+        border-radius: 999px;
+        background: #e5e7eb;
+        overflow: hidden;
+      }
+
+      .progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #2563eb 0%, #0ea5e9 100%);
+        width: 0%;
+        transition: width 0.25s ease;
+      }
+
+      .progress-label {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
       .composer {
         margin-top: 12px;
         border: 1px solid var(--line);
@@ -344,8 +369,21 @@
 
       function addMessage(role, text, meta='', extra=null) {
         const convo = ensureActiveConversation();
-        const message = { role, text, meta, extra, ts: nowIso() };
+        const message = { id: `m_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, role, text, meta, extra, ts: nowIso() };
         convo.messages.push(message);
+        convo.updated_at = nowIso();
+        saveConversations();
+        renderHistory();
+        renderChat();
+        return message.id;
+      }
+
+      function updateMessage(messageId, patch) {
+        if (!messageId) return;
+        const convo = ensureActiveConversation();
+        const idx = convo.messages.findIndex((m) => m.id === messageId);
+        if (idx < 0) return;
+        convo.messages[idx] = { ...convo.messages[idx], ...patch, ts: nowIso() };
         convo.updated_at = nowIso();
         saveConversations();
         renderHistory();
@@ -412,6 +450,24 @@
 
       function renderAttachments(container, extra) {
         if (!extra) return;
+
+        if (extra.progress && typeof extra.progress.percent === 'number') {
+          const pWrap = document.createElement('div');
+          pWrap.className = 'progress-wrap';
+          const track = document.createElement('div');
+          track.className = 'progress-track';
+          const bar = document.createElement('div');
+          bar.className = 'progress-bar';
+          bar.style.width = `${Math.max(0, Math.min(100, extra.progress.percent))}%`;
+          track.appendChild(bar);
+          pWrap.appendChild(track);
+          const lbl = document.createElement('div');
+          lbl.className = 'progress-label';
+          lbl.textContent = extra.progress.label || `${Math.round(extra.progress.percent)}%`;
+          pWrap.appendChild(lbl);
+          container.appendChild(pWrap);
+        }
+
         const hasSources = Array.isArray(extra.sources) && extra.sources.length > 0;
         const hasRelated = Array.isArray(extra.related) && extra.related.length > 0;
         if (!hasSources && !hasRelated) return;
@@ -538,10 +594,49 @@
         const res = await fetch('/slack/ingest/channels', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ days_back: daysBack, include_links: true })
+          body: JSON.stringify({
+            days_back: daysBack,
+            include_links: true,
+            per_channel_page_cap: 20,
+            top_k_files_per_channel: 100,
+            top_k_links_per_channel: 200,
+          })
         });
         if (!res.ok) throw new Error(`Window scrape failed: ${res.status}`);
         return await res.json();
+      }
+
+      function startProgressMessage(label) {
+        const startedAt = Date.now();
+        let percent = 2;
+        const id = addMessage('assistant', label, '', { progress: { percent, label: `${percent}%` } });
+
+        const timer = setInterval(() => {
+          percent = Math.min(92, percent + (percent < 40 ? 7 : percent < 75 ? 4 : 2));
+          const elapsed = Math.round((Date.now() - startedAt) / 1000);
+          updateMessage(id, {
+            extra: { progress: { percent, label: `${percent}% · ${elapsed}s elapsed` } },
+          });
+        }, 900);
+
+        return {
+          done(finalText, finalMeta) {
+            clearInterval(timer);
+            updateMessage(id, {
+              text: finalText,
+              meta: finalMeta,
+              extra: { progress: { percent: 100, label: '100% · completed' } },
+            });
+          },
+          fail(finalText, err) {
+            clearInterval(timer);
+            updateMessage(id, {
+              text: finalText,
+              meta: String(err || ''),
+              extra: { progress: { percent: 100, label: 'failed' } },
+            });
+          },
+        };
       }
 
       function autoGrow() {
@@ -566,20 +661,19 @@
 
       sync.addEventListener('click', async () => {
         sync.disabled = true;
-        addMessage('assistant', 'Updating DB from Slack since the last run...');
+        const progress = startProgressMessage('Updating DB from Slack since the last run...');
         try {
           const payload = await runIncrementalUpdate();
           const r = payload.result || {};
           const m = r.metrics || {};
           const byChannel = r.by_channel || {};
           const touched = Object.entries(byChannel).filter(([, s]) => (s.ingested || 0) > 0 || (s.duplicates || 0) > 0 || (s.errors || 0) > 0).length;
-          addMessage(
-            'assistant',
+          progress.done(
             'Database update completed.',
-            `ingested=${m.ingested ?? 0}, duplicates=${m.duplicates ?? 0}, errors=${m.errors ?? 0}, channels_touched=${touched}, duration=${m.duration_ms ?? '-'} ms`
+            `messages_scanned=${m.messages_scanned ?? 0}, links_found=${m.link_discovered ?? 0}, pdfs_found=${m.pdf_discovered ?? 0}, ingested=${m.ingested ?? 0}, duplicates=${m.duplicates ?? 0}, errors=${m.errors ?? 0}, channels_touched=${touched}, duration=${m.duration_ms ?? '-'} ms`
           );
         } catch (err) {
-          addMessage('assistant', 'DB update failed.', String(err));
+          progress.fail('DB update failed.', err);
         } finally {
           sync.disabled = false;
         }
@@ -596,19 +690,18 @@
         }
 
         backfill.disabled = true;
-        addMessage('assistant', `Running backfill scrape for ${parsed.value} ${parsed.unit}...`);
+        const progress = startProgressMessage(`Running backfill scrape for ${parsed.value} ${parsed.unit}...`);
         try {
           const payload = await runWindowBackfill(parsed.days_back);
           const m = payload.metrics || {};
           const byChannel = payload.by_channel || {};
           const touched = Object.entries(byChannel).filter(([, s]) => (s.ingested || 0) > 0 || (s.duplicates || 0) > 0 || (s.errors || 0) > 0).length;
-          addMessage(
-            'assistant',
+          progress.done(
             'Window scrape completed.',
-            `window=${parsed.value} ${parsed.unit} (${parsed.days_back} days), ingested=${m.ingested ?? 0}, duplicates=${m.duplicates ?? 0}, errors=${m.errors ?? 0}, channels_scanned=${payload.channels_scanned ?? '-'}, channels_touched=${touched}, duration=${m.duration_ms ?? '-'} ms`
+            `window=${parsed.value} ${parsed.unit} (${parsed.days_back} days), messages_scanned=${m.messages_scanned ?? 0}, links_found=${m.link_discovered ?? 0}, pdfs_found=${m.pdf_discovered ?? 0}, ingested=${m.ingested ?? 0}, duplicates=${m.duplicates ?? 0}, errors=${m.errors ?? 0}, channels_scanned=${payload.channels_scanned ?? '-'}, channels_touched=${touched}, duration=${m.duration_ms ?? '-'} ms`
           );
         } catch (err) {
-          addMessage('assistant', 'Window scrape failed.', String(err));
+          progress.fail('Window scrape failed.', err);
         } finally {
           backfill.disabled = false;
         }

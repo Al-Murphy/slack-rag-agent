@@ -60,7 +60,8 @@ async def query_rag(query: str, top_k: int = 5) -> dict:
     plan = plan_query(query)
     q_vec = get_embeddings(query)
     t1 = time.perf_counter()
-    chunks = search_similar_chunks(q_vec, top_k=max(top_k * 2, top_k))
+    retrieval_k = min(60, max(top_k * 8, top_k + 10))
+    chunks = search_similar_chunks(q_vec, top_k=retrieval_k)
     t2 = time.perf_counter()
 
     ranked = rerank_chunks(query, chunks)

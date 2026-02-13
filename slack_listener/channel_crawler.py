@@ -72,16 +72,44 @@ def _is_candidate_paper_url(url: str) -> bool:
     return any(d in u for d in domains)
 
 
+def _message_text_blob(message: dict[str, Any]) -> str:
+    parts: list[str] = []
+    parts.append(message.get("text", ""))
+
+    for blk in message.get("blocks", []):
+        txt = blk.get("text", {})
+        if isinstance(txt, dict):
+            parts.append(txt.get("text", ""))
+        for el in blk.get("elements", []):
+            if isinstance(el, dict):
+                t = el.get("text")
+                if isinstance(t, str):
+                    parts.append(t)
+
+    for att in message.get("attachments", []):
+        if not isinstance(att, dict):
+            continue
+        for key in ("title", "text", "fallback", "from_url", "title_link"):
+            val = att.get(key)
+            if isinstance(val, str):
+                parts.append(val)
+
+    for f in message.get("files", []):
+        if not isinstance(f, dict):
+            continue
+        for key in ("permalink", "url_private", "url_private_download", "title", "name"):
+            val = f.get(key)
+            if isinstance(val, str):
+                parts.append(val)
+
+    return "\n".join(x for x in parts if x).strip()
+
+
 def extract_paper_urls(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
     seen: set[str] = set()
     out: list[dict[str, str]] = []
     for message in messages:
-        raw_text = " ".join(
-            [
-                message.get("text", ""),
-                message.get("blocks", [{}])[0].get("text", {}).get("text", ""),
-            ]
-        ).strip()
+        raw_text = _message_text_blob(message)
         for url in _extract_urls(raw_text):
             if not _is_candidate_paper_url(url):
                 continue
@@ -180,6 +208,8 @@ async def ingest_channels(
 
     by_channel: dict[str, dict[str, Any]] = defaultdict(
         lambda: {
+            "history_pages": 0,
+            "messages_scanned": 0,
             "pdf_discovered": 0,
             "link_discovered": 0,
             "ingested": 0,
@@ -199,6 +229,10 @@ async def ingest_channels(
             messages = []
             for page in pages:
                 messages.extend(page.get("messages", []))
+
+            by_channel[channel_id]["history_pages"] = len(pages)
+            by_channel[channel_id]["messages_scanned"] = len(messages)
+
             file_ids = extract_pdf_file_ids(messages)[:top_k_files_per_channel]
             by_channel[channel_id]["pdf_discovered"] = len(file_ids)
             paper_links = extract_paper_urls(messages)[:top_k_links_per_channel] if include_links else []
@@ -258,6 +292,9 @@ async def ingest_channels(
     total_ingested = sum(v["ingested"] for v in by_channel.values())
     total_duplicates = sum(v["duplicates"] for v in by_channel.values())
     total_errors = sum(v["errors"] for v in by_channel.values())
+    total_pdf_discovered = sum(v["pdf_discovered"] for v in by_channel.values())
+    total_link_discovered = sum(v["link_discovered"] for v in by_channel.values())
+    total_messages_scanned = sum(v["messages_scanned"] for v in by_channel.values())
 
     for cid in by_channel:
         by_channel[cid]["timing_ms"] = _rounded_timing(by_channel[cid]["timing_ms"])
@@ -268,6 +305,9 @@ async def ingest_channels(
         "channels_scanned": len(targets),
         "oldest_ts_used": oldest_ts,
         "metrics": {
+            "messages_scanned": total_messages_scanned,
+            "pdf_discovered": total_pdf_discovered,
+            "link_discovered": total_link_discovered,
             "ingested": total_ingested,
             "duplicates": total_duplicates,
             "errors": total_errors,

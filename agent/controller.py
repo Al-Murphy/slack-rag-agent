@@ -42,10 +42,10 @@ def _keywords(text: str) -> set[str]:
 def plan_query(query: str) -> Plan:
     q = query.lower()
     if any(k in q for k in ("compare", "difference", "versus", "vs")):
-        return Plan(query_type="comparative", min_required_matches=3, confidence_threshold=0.45)
+        return Plan(query_type="comparative", min_required_matches=3, confidence_threshold=0.30)
     if any(k in q for k in ("result", "finding", "conclusion", "evidence")):
-        return Plan(query_type="evidence", min_required_matches=2, confidence_threshold=0.4)
-    return Plan(query_type="general", min_required_matches=2, confidence_threshold=0.35)
+        return Plan(query_type="evidence", min_required_matches=2, confidence_threshold=0.28)
+    return Plan(query_type="general", min_required_matches=2, confidence_threshold=0.24)
 
 
 def rerank_chunks(query: str, chunks: list[Any]) -> list[tuple[Any, float]]:
@@ -53,6 +53,7 @@ def rerank_chunks(query: str, chunks: list[Any]) -> list[tuple[Any, float]]:
     if not chunks:
         return []
 
+    denom = max(1, len(chunks) - 1)
     scored: list[tuple[Any, float]] = []
     for idx, chunk in enumerate(chunks):
         content = (chunk.content or "").lower()
@@ -67,10 +68,11 @@ def rerank_chunks(query: str, chunks: list[Any]) -> list[tuple[Any, float]]:
             "methods": 0.05,
             "title": 0.03,
         }.get((chunk.section or "").lower(), 0.0)
+        section_norm = min(1.0, section_bonus * 4.0)
 
-        # small rank prior to preserve semantic search order
-        rank_prior = max(0.0, 0.08 - (idx * 0.01))
-        score = lexical + section_bonus + rank_prior
+        # Preserve semantic retrieval order strongly, then blend lexical signals.
+        semantic_rank = 1.0 - (idx / denom)
+        score = (0.6 * semantic_rank) + (0.3 * lexical) + (0.1 * section_norm)
         scored.append((chunk, round(score, 4)))
 
     scored.sort(key=lambda x: x[1], reverse=True)
