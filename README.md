@@ -1,5 +1,7 @@
 # Slack RAG Agent
 
+![Slack RAG Agent Logo](ui/logo-v3.svg)
+
 Agentic Slack-to-RAG system for genomics x AI paper workflows.
 
 ## Core Features
