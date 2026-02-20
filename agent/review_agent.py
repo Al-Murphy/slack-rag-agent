@@ -140,3 +140,129 @@ async def review_answer(
             "document_updates": [],
             "connection_updates": [],
         }
+
+
+async def review_ingested_document(
+    *,
+    doc: dict[str, Any],
+    structured: dict[str, Any],
+    related_documents: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Review a newly ingested document and propose DB curation updates.
+
+    Returns: {
+      review_confidence: float,
+      issues: list[str],
+      document_updates: list[...],
+      connection_updates: list[...],
+    }
+    """
+    model = os.environ.get("OPENAI_MODEL_CHAT", "gpt-4o-mini")
+    reviewer_model = os.environ.get("OPENAI_MODEL_REVIEW", model)
+    client = AsyncOpenAI()
+
+    schema = {
+        "name": "ingest_review",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "review_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                "issues": {"type": "array", "items": {"type": "string"}},
+                "document_updates": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "doc_id": {"type": "string"},
+                            "paper_type": {"type": "string", "enum": ["genomic_language_model", "seq2func", "other", "unknown"]},
+                            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                            "note": {"type": "string"},
+                        },
+                        "required": ["doc_id", "paper_type", "confidence", "note"],
+                        "additionalProperties": False,
+                    },
+                },
+                "connection_updates": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "source_doc_id": {"type": "string"},
+                            "target_doc_id": {"type": "string"},
+                            "action": {"type": "string", "enum": ["keep", "suppress", "activate"]},
+                            "reason": {"type": "string"},
+                        },
+                        "required": ["source_doc_id", "target_doc_id", "action", "reason"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["review_confidence", "issues", "document_updates", "connection_updates"],
+            "additionalProperties": False,
+        },
+    }
+
+    system_text = (
+        "You are a strict scientific ingestion reviewer for a genomics literature database. "
+        "Classify each paper conservatively and fix clearly incorrect related-paper links. "
+        "Do not invent facts; use only provided metadata and extracted sections."
+    )
+
+    payload = {
+        "doc": doc,
+        "structured": {
+            "title": structured.get("title", ""),
+            "abstract": structured.get("abstract", ""),
+            "methods": structured.get("methods", ""),
+            "results": structured.get("results", ""),
+            "conclusion": structured.get("conclusion", ""),
+            "key_findings": structured.get("key_findings", []),
+            "tldr": structured.get("tldr", ""),
+        },
+        "related_documents": related_documents or [],
+    }
+
+    user_text = (
+        "Review this newly ingested paper and propose curation updates.\n"
+        "Tasks:\n"
+        "1) Label this paper type as one of: genomic_language_model, seq2func, other, unknown.\n"
+        "2) Add concise review note describing the evidence.\n"
+        "3) For related-paper links, suppress links that are clearly off-topic; activate only if clearly justified.\n"
+        "Be conservative and avoid over-editing.\n\n"
+        f"Input JSON:\n{json.dumps(payload, ensure_ascii=True)}"
+    )
+
+    try:
+        resp = await client.responses.create(
+            model=reviewer_model,
+            input=[
+                {"role": "system", "content": [{"type": "input_text", "text": system_text}]},
+                {"role": "user", "content": [{"type": "input_text", "text": user_text}]},
+            ],
+            text={"format": {"type": "json_schema", "name": schema["name"], "schema": schema["schema"], "strict": True}},
+        )
+        out = json.loads(resp.output_text or "{}")
+        review_confidence = float(out.get("review_confidence", 0.0) or 0.0)
+        review_confidence = max(0.0, min(1.0, review_confidence))
+        issues_raw = out.get("issues", [])
+        issues = [str(x).strip() for x in issues_raw if str(x).strip()] if isinstance(issues_raw, list) else []
+        doc_updates = out.get("document_updates", [])
+        conn_updates = out.get("connection_updates", [])
+        if not isinstance(doc_updates, list):
+            doc_updates = []
+        if not isinstance(conn_updates, list):
+            conn_updates = []
+        return {
+            "review_confidence": review_confidence,
+            "issues": issues,
+            "document_updates": doc_updates,
+            "connection_updates": conn_updates,
+        }
+    except Exception:
+        return {
+            "review_confidence": 0.0,
+            "issues": ["ingest_review_failed"],
+            "document_updates": [],
+            "connection_updates": [],
+        }

@@ -12,7 +12,7 @@ Agentic Slack-to-RAG system for genomics x AI paper workflows.
 - Stores chunks, embeddings, metadata, and related-paper graph in Postgres + pgvector
 - Grounded retrieval with citations, related papers, and confidence reporting
 - Review agent validates answers before return
-- **Review-to-DB writeback:** review agent can update document labels/notes/confidence and paper link status (`active` / `suppressed`)
+- **Systematic Review-to-DB writeback:** review agent runs immediately after each new ingest (and during chat review) to update document labels/notes/confidence and paper link status (`active` / `suppressed`)
 
 ## Agentic Pipeline
 
@@ -21,7 +21,7 @@ Agentic Slack-to-RAG system for genomics x AI paper workflows.
 3. Structurer extracts title/authors/sections/TLDR
 4. Vector store inserts chunks + embeddings + document metadata
 5. Retrieval agent finds evidence and drafts response
-6. Review agent checks grounding/fit and can curate DB entries/connections
+6. Review agent runs post-ingest for every new paper and also during answer review to curate DB entries/connections
 
 ## Required `.env`
 

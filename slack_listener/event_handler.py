@@ -3,11 +3,19 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import os
 import time
 from typing import Any
 
 from agent.fulltext_agent import ensure_full_text_for_paper
-from database.vector_store import document_exists_by_hash, insert_paper_into_db
+from agent.review_agent import review_ingested_document
+from database.vector_store import (
+    apply_review_updates,
+    document_exists_by_hash,
+    get_documents_by_doc_ids,
+    get_related_documents_for_doc_ids,
+    insert_paper_into_db,
+)
 from processing.link_resolver import _extract_arxiv_id, _extract_doi, paper_signal_score
 from processing.pdf_parser import parse_pdf_bytes
 from processing.structurer import extract_structured_sections
@@ -65,11 +73,59 @@ async def _ingest_structured_document(
         source_ref=source_ref,
         source_url=source_url,
     )
+
+    review_updates = {"documents": 0, "relations": 0}
+    review_result: dict[str, Any] = {"review_confidence": 0.0, "issues": []}
+
+    run_post_ingest_review = os.environ.get("ENABLE_POST_INGEST_REVIEW", "true").lower() in {"1", "true", "yes"}
+    enable_review_db_updates = os.environ.get("ENABLE_REVIEW_DB_UPDATES", "true").lower() in {"1", "true", "yes"}
+    if inserted > 0 and run_post_ingest_review:
+        try:
+            doc_lookup = get_documents_by_doc_ids([doc_id])
+            related_map = get_related_documents_for_doc_ids([doc_id], per_doc_limit=12)
+            related_docs = related_map.get(doc_id, [])
+            doc_payload = doc_lookup.get(
+                doc_id,
+                {
+                    "doc_id": doc_id,
+                    "title": structured.get("title", ""),
+                    "authors": structured.get("authors", []),
+                    "source_url": source_url,
+                    "source_ref": source_ref,
+                    "source": source,
+                    "tldr": structured.get("tldr", ""),
+                    "paper_type": "",
+                },
+            )
+            review_result = await review_ingested_document(
+                doc=doc_payload,
+                structured=structured,
+                related_documents=related_docs,
+            )
+            review_payload = {
+                "document_updates": review_result.get("document_updates", []),
+                "connection_updates": review_result.get("connection_updates", []),
+            }
+            if enable_review_db_updates:
+                review_updates = apply_review_updates(review_payload)
+        except Exception:
+            logger.exception("Post-ingest review failed doc_id=%s", doc_id)
+
     return {
         "processed": True,
         "doc_hash": doc_hash,
         "chunks_inserted": inserted,
         "duplicate": False,
+        "post_ingest_review": {
+            "enabled": run_post_ingest_review,
+            "db_writeback_enabled": enable_review_db_updates,
+            "review_confidence": float(review_result.get("review_confidence", 0.0) or 0.0),
+            "issues": review_result.get("issues", []) if isinstance(review_result.get("issues", []), list) else [],
+            "db_updates": {
+                "documents": int(review_updates.get("documents", 0) or 0),
+                "relations": int(review_updates.get("relations", 0) or 0),
+            },
+        },
         **(extra or {}),
     }
 
