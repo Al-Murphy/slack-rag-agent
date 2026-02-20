@@ -43,7 +43,7 @@ CRAWL_JOBS: dict[str, dict[str, Any]] = {}
 class ChannelIngestRequest(BaseModel):
     channel_ids: list[str] = Field(default_factory=list)
     scan_all_accessible: bool = False
-    days_back: int = Field(default=30, ge=1, le=365)
+    days_back: int = Field(default=30, ge=1, le=3650)
     per_channel_page_cap: int = Field(default=5, ge=1, le=50)
     top_k_files_per_channel: int = Field(default=50, ge=1, le=500)
     include_links: bool = True
@@ -58,7 +58,7 @@ class IncrementalCrawlRequest(BaseModel):
     top_k_files_per_channel: int = Field(default=50, ge=1, le=500)
     top_k_links_per_channel: int = Field(default=50, ge=1, le=500)
     link_concurrency_limit: int = Field(default=3, ge=1, le=20)
-    initial_days_back: int = Field(default=1, ge=1, le=365)
+    initial_days_back: int = Field(default=1, ge=1, le=3650)
 
 
 class ClearDbRequest(BaseModel):
@@ -68,7 +68,7 @@ class ClearDbRequest(BaseModel):
 class AsyncChannelIngestRequest(BaseModel):
     channel_ids: list[str] = Field(default_factory=list)
     scan_all_accessible: bool = False
-    days_back: int = Field(default=30, ge=1, le=365)
+    days_back: int = Field(default=30, ge=1, le=3650)
     per_channel_page_cap: int = Field(default=5, ge=1, le=50)
     top_k_files_per_channel: int = Field(default=50, ge=1, le=500)
     include_links: bool = True
@@ -78,7 +78,7 @@ class AsyncChannelIngestRequest(BaseModel):
 
 class RetrievalEvalRequest(BaseModel):
     channel_id: str | None = None
-    days_back: int = Field(default=30, ge=1, le=365)
+    days_back: int = Field(default=30, ge=1, le=3650)
     paraphrase_count: int = Field(default=5, ge=1, le=100)
     top_k: int = Field(default=5, ge=1, le=20)
 

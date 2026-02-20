@@ -1012,7 +1012,9 @@
         const unit = m[2];
         if (!Number.isFinite(value) || value < 1) return null;
         const unitDays = unit.startsWith('day') ? 1 : unit.startsWith('week') ? 7 : unit.startsWith('month') ? 30 : 365;
-        return { value, unit, days_back: value * unitDays };
+        const daysBack = value * unitDays;
+        const maxDays = 3650;
+        return { value, unit, days_back: Math.min(daysBack, maxDays), clamped: daysBack > maxDays };
       }
 
       async function startWindowBackfillJob(daysBack) {
@@ -1027,7 +1029,14 @@
             top_k_links_per_channel: 200,
           })
         });
-        if (!res.ok) throw new Error(`Window scrape start failed: ${res.status}`);
+        if (!res.ok) {
+          let detail = `Window scrape start failed: ${res.status}`;
+          try {
+            const payload = await res.json();
+            if (payload?.detail) detail = typeof payload.detail === 'string' ? payload.detail : JSON.stringify(payload.detail);
+          } catch (_) {}
+          throw new Error(detail);
+        }
         return await res.json();
       }
 
@@ -1227,7 +1236,8 @@
         }
 
         backfill.disabled = true;
-        const progress = startProgressMessage(`Running backfill scrape for ${parsed.value} ${parsed.unit}...`, false);
+        const scopeText = parsed.clamped ? `${parsed.value} ${parsed.unit} (clamped to ${parsed.days_back} days)` : `${parsed.value} ${parsed.unit}`;
+        const progress = startProgressMessage(`Running backfill scrape for ${scopeText}...`, false);
         try {
           const started = await startWindowBackfillJob(parsed.days_back);
           const jobId = started.job_id;
