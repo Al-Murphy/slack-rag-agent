@@ -198,8 +198,8 @@ async def slack_events(req: Request) -> dict[str, Any]:
 async def search(q: str, top_k: int = 5) -> dict[str, Any]:
     if not q.strip():
         raise HTTPException(status_code=400, detail="q is required")
-    if top_k < 1 or top_k > 20:
-        raise HTTPException(status_code=400, detail="top_k must be between 1 and 20")
+    if top_k < 1 or top_k > 100:
+        raise HTTPException(status_code=400, detail="top_k must be between 1 and 100")
 
     persona_profile = get_state_value(PERSONA_PROFILE_STATE_KEY) or DEFAULT_PERSONA_PROFILE
     persona_enabled_raw = (get_state_value(PERSONA_ENABLED_STATE_KEY) or "true").strip().lower()

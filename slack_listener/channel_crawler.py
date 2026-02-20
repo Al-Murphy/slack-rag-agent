@@ -254,7 +254,7 @@ async def ingest_channels(
                         by_channel[channel_id]["duplicates"] += 1
                     elif r.get("processed"):
                         by_channel[channel_id]["ingested"] += 1
-                    elif r.get("reason") == "non_paper_link":
+                    elif r.get("reason") in {"non_paper_link", "non_paper_file"}:
                         by_channel[channel_id]["skipped_non_paper"] += 1
                     else:
                         by_channel[channel_id]["errors"] += 1
@@ -289,7 +289,7 @@ async def ingest_channels(
                         by_channel[channel_id]["duplicates"] += 1
                     elif r.get("processed"):
                         by_channel[channel_id]["ingested"] += 1
-                    elif r.get("reason") == "non_paper_link":
+                    elif r.get("reason") in {"non_paper_link", "non_paper_file"}:
                         by_channel[channel_id]["skipped_non_paper"] += 1
                     else:
                         by_channel[channel_id]["errors"] += 1

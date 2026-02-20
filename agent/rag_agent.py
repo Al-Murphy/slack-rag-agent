@@ -313,7 +313,7 @@ async def query_rag(
     q_vec = get_embeddings(retrieval_query)
     t1 = time.perf_counter()
 
-    retrieval_k = min(120, max(top_k * 12, top_k + 20))
+    retrieval_k = min(320, max(top_k * 20, top_k + 40))
     chunks = search_hybrid_chunks(query=retrieval_query, query_embedding=q_vec, top_k=retrieval_k, vector_k=retrieval_k, sparse_k=retrieval_k)
     t2 = time.perf_counter()
 

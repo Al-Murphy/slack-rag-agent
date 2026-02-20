@@ -46,6 +46,26 @@ def _canonical_paper_url_from_text(raw_text: str, file_info: dict[str, Any]) -> 
     return ""
 
 
+def _looks_like_paper_text(text: str) -> bool:
+    normalized = " ".join((text or "").split())
+    if not normalized:
+        return False
+    words = normalized.lower().split()
+    if len(words) < 700:
+        return False
+
+    lowered = " ".join(words)
+    markers = ("abstract", "introduction", "methods", "results", "discussion", "conclusion", "references")
+    hits = sum(1 for m in markers if m in lowered)
+
+    # Exclude obvious non-paper prose pages/docs.
+    non_paper_signals = ("methods to watch", "news", "collection", "editorial", "podcast")
+    if any(s in lowered for s in non_paper_signals) and hits < 3:
+        return False
+
+    return hits >= 2
+
+
 async def _ingest_structured_document(
     *,
     doc_hash: str,
@@ -178,6 +198,21 @@ async def process_slack_file_id(file_id: str, source_ref: str | None = None) -> 
     t2 = time.perf_counter()
     raw_text = await asyncio.to_thread(parse_pdf_bytes, file_bytes)
     t_parse_pdf += (time.perf_counter() - t2) * 1000
+
+    if not _looks_like_paper_text(raw_text):
+        return {
+            "processed": False,
+            "reason": "non_paper_file",
+            "file_id": file_id,
+            "timing_ms": {
+                "total": round((time.perf_counter() - t_start) * 1000, 2),
+                "fetch_metadata": round(t_fetch_meta, 2),
+                "download": round(t_download, 2),
+                "parse_pdf": round(t_parse_pdf, 2),
+                "structure": 0.0,
+                "insert": 0.0,
+            },
+        }
 
     t3 = time.perf_counter()
     structured = await extract_structured_sections(raw_text)

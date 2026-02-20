@@ -988,8 +988,20 @@
         chat.scrollTop = chat.scrollHeight;
       }
 
+      function inferTopK(q) {
+        const s = String(q || '').toLowerCase();
+        if (s.includes('all papers') || s.includes('list papers') || s.includes('written by') || s.includes('return papers')) {
+          return 40;
+        }
+        if (s.includes('state-of-the-art') || s.includes('survey') || s.includes('in the field')) {
+          return 20;
+        }
+        return 8;
+      }
+
       async function ask(q) {
-        const url = `/query?q=${encodeURIComponent(q)}&top_k=5`;
+        const topK = inferTopK(q);
+        const url = `/query?q=${encodeURIComponent(q)}&top_k=${encodeURIComponent(topK)}`;
         const res = await fetch(url);
         if (!res.ok) throw new Error(`Request failed: ${res.status}`);
         return await res.json();
