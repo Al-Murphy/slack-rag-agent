@@ -8,6 +8,8 @@ import time
 from collections import defaultdict
 from typing import Any, Callable
 
+from database.backup import backup_database_to_hpc
+
 logger = logging.getLogger(__name__)
 
 
@@ -321,6 +323,17 @@ async def ingest_channels(
     for cid in by_channel:
         by_channel[cid]["timing_ms"] = _rounded_timing(by_channel[cid]["timing_ms"])
 
+    backup_result: dict[str, Any] = {"attempted": False, "ok": False, "reason": "not_run"}
+    try:
+        backup_result = await asyncio.to_thread(
+            backup_database_to_hpc,
+            trigger="channel_crawl",
+            ingested_count=total_ingested,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Post-scrape HPC backup failed")
+        backup_result = {"attempted": True, "ok": False, "reason": "exception", "error": str(exc)}
+
     return {
         "ok": True,
         "scan_all_accessible": scan_all_accessible,
@@ -336,6 +349,7 @@ async def ingest_channels(
             "skipped_non_paper": total_skipped_non_paper,
             "duration_ms": duration,
             "timing_ms": _rounded_timing(total_timing),
+            "backup": backup_result,
         },
         "by_channel": by_channel,
         "results": results,

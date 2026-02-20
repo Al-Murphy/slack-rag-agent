@@ -46,6 +46,15 @@ ALLOW_DB_CLEAR=false
 # Optional crawler defaults
 CRAWL_CHANNEL_IDS=C12345,C67890
 CRAWL_DAYS_BACK_DEFAULT=1
+
+# Automatic DB backup to HPC after each scrape
+ENABLE_POST_SCRAPE_HPC_BACKUP=true
+DB_BACKUP_HPC_TARGET=amurphy@bamdev4:/grid/koo/home/shared/db_backups/slack-rag-agent
+DB_BACKUP_TMP_DIR=/tmp/slack-rag-agent-backups
+DB_BACKUP_KEEP_LOCAL=false
+# Optional:
+# DB_BACKUP_SSH_OPTS=-i ~/.ssh/id_rsa
+# BACKUP_ON_EMPTY_SCRAPE=false
 ```
 
 ## Run
@@ -53,6 +62,9 @@ CRAWL_DAYS_BACK_DEFAULT=1
 ```bash
 pip install -r requirements.txt
 uvicorn server:app --reload
+
+# optional: test HPC backup manually
+python scripts/backup_db_to_hpc.py
 ```
 
 ## Notes
