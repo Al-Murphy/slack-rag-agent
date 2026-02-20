@@ -72,6 +72,7 @@ def _metadata_relevance_bonus(query: str, chunk: Any, doc_lookup: dict[str, dict
     title = str(doc.get("title", "") or "").lower()
     authors = " ".join(str(a) for a in (doc.get("authors", []) or [])).lower()
     tldr = str(doc.get("tldr", "") or "").lower()
+    paper_type = str(doc.get("paper_type", "") or "").strip().lower()
     meta = f"{title} {authors} {tldr}"
 
     if not meta.strip() or not q_tokens:
@@ -84,12 +85,82 @@ def _metadata_relevance_bonus(query: str, chunk: Any, doc_lookup: dict[str, dict
     ql = query.lower()
     if "group" in ql or "lab" in ql:
         if any(t in authors for t in q_tokens):
-            extra += 0.08
-    if "glm" in ql or "glms" in ql:
+            extra += 0.10
+    if "glm" in ql or "glms" in ql or "genomic language model" in ql:
         if any(k in meta for k in ["genomic language model", "dna language model", "dnalm"]):
-            extra += 0.06
+            extra += 0.08
+        if paper_type == "genomic_language_model":
+            extra += 0.12
+    if "seq2func" in ql or "sequence to function" in ql:
+        if paper_type == "seq2func":
+            extra += 0.10
 
-    return min(0.30, base + extra)
+    return min(0.38, base + extra)
+
+
+def _is_metadata_list_query(query: str) -> bool:
+    q = (query or "").strip().lower()
+    if not q:
+        return False
+    return any(
+        k in q
+        for k in (
+            "all papers",
+            "papers written by",
+            "written by",
+            "from the",
+            "from ",
+            "lab",
+            "group",
+            "author",
+            "papers that",
+            "return papers",
+            "list papers",
+        )
+    )
+
+
+def _metadata_support_score(query: str, docs: dict[str, dict]) -> float:
+    if not docs:
+        return 0.0
+    q_tokens = {t for t in query.lower().split() if len(t) > 2}
+    if not q_tokens:
+        return 0.0
+
+    matched = 0
+    scored = 0.0
+    for d in docs.values():
+        meta = " ".join(
+            [
+                str(d.get("title", "") or ""),
+                " ".join(str(a) for a in (d.get("authors", []) or [])),
+                str(d.get("tldr", "") or ""),
+                str(d.get("paper_type", "") or ""),
+            ]
+        ).lower()
+        if not meta.strip():
+            continue
+        overlap = sum(1 for t in q_tokens if t in meta)
+        if overlap > 0:
+            matched += 1
+            scored += min(1.0, overlap / max(1, len(q_tokens)))
+
+    if matched == 0:
+        return 0.0
+    avg = scored / matched
+    coverage = min(1.0, matched / max(1, min(5, len(docs))))
+    return round(min(1.0, 0.65 * avg + 0.35 * coverage), 4)
+
+
+def _is_excluded_doc(doc: dict[str, Any]) -> bool:
+    paper_type = str(doc.get("paper_type", "") or "").strip().lower()
+    if paper_type == "non_paper":
+        return True
+    title = str(doc.get("title", "") or "").strip().lower()
+    source_url = str(doc.get("source_url", "") or "").strip().lower()
+    if title in {"", "untitled"} and not source_url:
+        return True
+    return False
 
 
 def _fallback_response(reason: str, confidence: float) -> str:
@@ -251,6 +322,10 @@ async def query_rag(
     # Metadata-aware boosting before LLM rerank helps author/lab queries (e.g., "kundaje group glm").
     candidate_doc_ids = [c.doc_id for c, _ in ranked[: min(120, len(ranked))]]
     candidate_doc_lookup = get_documents_by_doc_ids(candidate_doc_ids)
+
+    # Drop documents explicitly marked as non-paper from retrieval results.
+    ranked = [(c, s) for c, s in ranked if not _is_excluded_doc(candidate_doc_lookup.get(c.doc_id, {}))]
+
     boosted: list[tuple[Any, float]] = []
     for chunk, score in ranked:
         boosted.append((chunk, round(float(score) + _metadata_relevance_bonus(query, chunk, candidate_doc_lookup), 4)))
@@ -265,6 +340,7 @@ async def query_rag(
     related_map = get_related_documents_for_doc_ids(selected_doc_ids, per_doc_limit=5)
 
     conf = confidence_score(plan, selected_ranked)
+    metadata_query = _is_metadata_list_query(query)
     needs_fallback = len(selected_chunks) < plan.min_required_matches or conf < plan.confidence_threshold
 
     review_result = {"approved": True, "corrected_answer": "", "issues": [], "review_confidence": 0.0, "document_updates": [], "connection_updates": []}
@@ -283,8 +359,11 @@ async def query_rag(
             persona_profile=persona_profile,
             persona_enabled=persona_enabled,
         )
-        validator_score = answer_support_score(draft_answer, selected_ranked)
-        if validator_score < 0.2:
+        lexical_support = answer_support_score(draft_answer, selected_ranked)
+        meta_support = _metadata_support_score(query, doc_lookup) if metadata_query else 0.0
+        validator_score = max(lexical_support, meta_support)
+        validator_threshold = 0.10 if metadata_query else 0.2
+        if validator_score < validator_threshold:
             answer = _fallback_response("generated answer not strongly supported by retrieved context", conf)
             t3 = time.perf_counter()
             t4 = t3
@@ -347,8 +426,11 @@ async def query_rag(
                     logger.exception("Failed applying review DB updates")
 
             reviewed_answer = str(review_result.get("corrected_answer", "") or "").strip() or draft_answer
-            reviewed_support = answer_support_score(reviewed_answer, selected_ranked)
-            if reviewed_support < 0.18:
+            reviewed_lexical = answer_support_score(reviewed_answer, selected_ranked)
+            reviewed_meta = _metadata_support_score(query, doc_lookup) if metadata_query else 0.0
+            reviewed_support = max(reviewed_lexical, reviewed_meta)
+            reviewed_threshold = 0.08 if metadata_query else 0.18
+            if reviewed_support < reviewed_threshold:
                 answer = _fallback_response("reviewed answer not strongly supported by retrieved context", conf)
             else:
                 answer = reviewed_answer
@@ -414,6 +496,7 @@ async def query_rag(
                     "min_required_matches": plan.min_required_matches,
                     "confidence_threshold": plan.confidence_threshold,
                     "confidence_score": conf,
+                    "metadata_query": metadata_query,
                     "validator_support_score": validator_score,
                     "llm_rerank_enabled": os.environ.get("ENABLE_LLM_RERANK", "true"),
                     "review_agent_enabled": os.environ.get("ENABLE_REVIEW_AGENT", "true"),
